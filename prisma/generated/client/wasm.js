@@ -120,6 +120,24 @@ exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
   Serializable: 'Serializable'
 });
 
+exports.Prisma.SessionScalarFieldEnum = {
+  id: 'id',
+  shop: 'shop',
+  state: 'state',
+  isOnline: 'isOnline',
+  scope: 'scope',
+  expires: 'expires',
+  accessToken: 'accessToken',
+  userId: 'userId',
+  firstName: 'firstName',
+  lastName: 'lastName',
+  email: 'email',
+  accountOwner: 'accountOwner',
+  locale: 'locale',
+  collaborator: 'collaborator',
+  emailVerified: 'emailVerified'
+};
+
 exports.Prisma.FulfillmentsScalarFieldEnum = {
   id: 'id',
   order_id: 'order_id',
@@ -221,19 +239,20 @@ exports.Prisma.QueryMode = {
   insensitive: 'insensitive'
 };
 
+exports.Prisma.NullsOrder = {
+  first: 'first',
+  last: 'last'
+};
+
 exports.Prisma.JsonNullValueFilter = {
   DbNull: Prisma.DbNull,
   JsonNull: Prisma.JsonNull,
   AnyNull: Prisma.AnyNull
 };
 
-exports.Prisma.NullsOrder = {
-  first: 'first',
-  last: 'last'
-};
-
 
 exports.Prisma.ModelName = {
+  Session: 'Session',
   fulfillments: 'fulfillments',
   orders: 'orders',
   stores: 'stores',
