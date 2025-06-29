@@ -1,0 +1,31 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "3c301ffc2c48b023e8590a1715b34d5d"
+name = "Track My Order"
+handle = "track-my-order"
+application_url = "https://spell-query-conf-nutrition.trycloudflare.com"
+embedded = true
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-04"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products"
+
+[auth]
+redirect_urls = ["https://spell-query-conf-nutrition.trycloudflare.com/auth/callback", "https://spell-query-conf-nutrition.trycloudflare.com/auth/shopify/callback", "https://spell-query-conf-nutrition.trycloudflare.com/api/auth/callback"]
+
+[pos]
+embedded = false
