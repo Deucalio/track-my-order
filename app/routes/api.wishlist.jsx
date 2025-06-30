@@ -1,10 +1,11 @@
 import { json } from "@remix-run/node";
-import db from "../db.server";
+import {prisma} from "../db.server";
 
 // get request: accept request with request: customerId, shop, productId.
 // read database and return wishlist items for that customer.
 export async function loader({ request }) {
   console.log("Wishlist GET request hit!");
+
 
   return json({
     message: "This is the wishlist GET endpoint. Use POST to add items.",

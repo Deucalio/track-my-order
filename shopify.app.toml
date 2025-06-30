@@ -3,7 +3,7 @@
 client_id = "3c301ffc2c48b023e8590a1715b34d5d"
 name = "Track My Order"
 handle = "track-my-order"
-application_url = "https://surrounding-pvc-cast-may.trycloudflare.com"
+application_url = "https://rapid-organize-memphis-publicity.trycloudflare.com"
 embedded = true
 [build]
 include_config_on_deploy = true
@@ -25,7 +25,7 @@ api_version = "2025-04"
 scopes = "write_products"
 
 [auth]
-redirect_urls = ["https://surrounding-pvc-cast-may.trycloudflare.com/auth/callback", "https://surrounding-pvc-cast-may.trycloudflare.com/auth/shopify/callback", "https://surrounding-pvc-cast-may.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://rapid-organize-memphis-publicity.trycloudflare.com/auth/callback", "https://rapid-organize-memphis-publicity.trycloudflare.com/auth/shopify/callback", "https://rapid-organize-memphis-publicity.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
+
 import {
   Page,
   Card,
@@ -26,6 +27,7 @@ import {
   EmptyState,
   Collapsible,
 } from "@shopify/polaris"
+
 import {
   DeliveryFilledIcon,
   ChatIcon,
@@ -40,6 +42,7 @@ import {
   ExitIcon,
   MobileIcon,
   NoteIcon,
+  AlertTriangleIcon,
 } from "@shopify/polaris-icons"
 
 const customerName = "{{customerName}}"
@@ -48,6 +51,166 @@ const trackingUrl = "{{trackingUrl}}"
 const status = "{{status}}"
 
 export default function Settings() {
+  const [showQRModal, setShowQRModal] = useState(false)
+  const [whatsappConnection, setWhatsappConnection] = useState({
+    isConnecting: false,
+    isConnected: false,
+    qrCode: null,
+    error: null,
+    accountName: null,
+    phoneNumber: null,
+    profilePicture: null,
+  })
+
+  // Function to fetch QR code
+  const fetchQRCode = useCallback(async () => {
+    setWhatsappConnection((prev) => ({
+      ...prev,
+      isConnecting: true,
+      error: null,
+      qrCode: null,
+    }))
+
+    try {
+      const response = await fetch("/app/whatsapp/qr")
+      const data = await response.json()
+
+      if (data.success) {
+        if (data.qrCode) {
+          setWhatsappConnection((prev) => ({
+            ...prev,
+            qrCode: data.qrCode,
+            isConnecting: false,
+            isConnected: false,
+          }))
+        } else if (data.status?.isReady) {
+          // Already connected
+          setWhatsappConnection((prev) => ({
+            ...prev,
+            isConnected: true,
+            isConnecting: false,
+            qrCode: null,
+            accountName: data.status.accountName || "WhatsApp Business",
+            phoneNumber: data.status.phoneNumber || "+92 XXX XXXXXXX",
+            profilePicture: data.status.profilePicture || "/placeholder.svg?height=40&width=40",
+          }))
+          setShowQRModal(false)
+        } else {
+          // Still generating, try again in 2 seconds
+          setTimeout(fetchQRCode, 2000)
+        }
+      } else {
+        setWhatsappConnection((prev) => ({
+          ...prev,
+          error: data.error || "Failed to generate QR code",
+          isConnecting: false,
+        }))
+      }
+    } catch (error) {
+      setWhatsappConnection((prev) => ({
+        ...prev,
+        error: "Network error: " + error.message,
+        isConnecting: false,
+      }))
+    }
+  }, [])
+
+  // Function to check connection status
+  const checkConnectionStatus = useCallback(async () => {
+    try {
+      const response = await fetch("/app/whatsapp/status")
+      const data = await response.json()
+
+      if (data.success && data.status?.isReady) {
+        setWhatsappConnection((prev) => ({
+          ...prev,
+          isConnected: true,
+          isConnecting: false,
+          qrCode: null,
+          accountName: data.status.accountName || "WhatsApp Business",
+          phoneNumber: data.status.phoneNumber || "+92 XXX XXXXXXX",
+          profilePicture: data.status.profilePicture || "/placeholder.svg?height=40&width=40",
+        }))
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error("Error checking status:", error)
+      return false
+    }
+  }, [])
+
+  // Function to disconnect WhatsApp
+  const disconnectWhatsApp = useCallback(async () => {
+    try {
+      const response = await fetch("/app/whatsapp/disconnect", {
+        method: "POST",
+      })
+      const data = await response.json()
+
+      if (data.success) {
+        setWhatsappConnection({
+          isConnected: false,
+          isConnecting: false,
+          qrCode: null,
+          error: null,
+          accountName: null,
+          phoneNumber: null,
+          profilePicture: null,
+        })
+        setNotifications((prev) => ({ ...prev, whatsappEnabled: false }))
+      } else {
+        setWhatsappConnection((prev) => ({
+          ...prev,
+          error: data.error || "Failed to disconnect WhatsApp",
+        }))
+      }
+    } catch (error) {
+      setWhatsappConnection((prev) => ({
+        ...prev,
+        error: "Network error: " + error.message,
+      }))
+    }
+  }, [])
+
+  // Effect to handle modal opening
+  useEffect(() => {
+    if (showQRModal) {
+      // First check if already connected
+      checkConnectionStatus().then((isConnected) => {
+        if (!isConnected) {
+          fetchQRCode()
+        }
+      })
+    }
+  }, [showQRModal, checkConnectionStatus, fetchQRCode])
+
+  // Poll for connection status when QR is shown
+  useEffect(() => {
+    let interval
+
+    if (showQRModal && whatsappConnection.qrCode && !whatsappConnection.isConnected) {
+      interval = setInterval(async () => {
+        const isConnected = await checkConnectionStatus()
+        if (isConnected) {
+          // Close modal after successful connection
+          setTimeout(() => {
+            setShowQRModal(false)
+          }, 2000)
+        }
+      }, 3000) // Check every 3 seconds
+    }
+
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [showQRModal, whatsappConnection.qrCode, whatsappConnection.isConnected, checkConnectionStatus])
+
+  // Check connection status on component mount
+  useEffect(() => {
+    checkConnectionStatus()
+  }, [checkConnectionStatus])
+
   const [credentials, setCredentials] = useState({
     tcs: {
       apiKey: "",
@@ -90,14 +253,8 @@ export default function Settings() {
     emailTemplate: `Dear ${customerName},\n\nYour order ${orderNumber} status has been updated to: ${status}\n\nYou can track your package here: ${trackingUrl}\n\nThank you for your business!`,
   })
 
-  const [whatsappConnection, setWhatsappConnection] = useState({
-    isConnected: false,
-    isConnecting: false,
-  })
-
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
-  const [showQRModal, setShowQRModal] = useState(false)
   const [showApiKeys, setShowApiKeys] = useState({})
   const [selectedTab, setSelectedTab] = useState(0)
   const [expandedCouriers, setExpandedCouriers] = useState({})
@@ -105,18 +262,15 @@ export default function Settings() {
   const [showCourierModal, setShowCourierModal] = useState(false)
   const [selectedCourier, setSelectedCourier] = useState("")
 
-  const handleCredentialChange = useCallback(
-    (courier, field, value) => {
-      setCredentials((prev) => ({
-        ...prev,
-        [courier]: {
-          ...prev[courier],
-          [field]: value,
-        },
-      }))
-    },
-    [],
-  )
+  const handleCredentialChange = useCallback((courier, field, value) => {
+    setCredentials((prev) => ({
+      ...prev,
+      [courier]: {
+        ...prev[courier],
+        [field]: value,
+      },
+    }))
+  }, [])
 
   const handleNotificationChange = useCallback((field, value) => {
     setNotifications((prev) => ({
@@ -127,36 +281,12 @@ export default function Settings() {
 
   const handleConnectWhatsApp = useCallback(async () => {
     setShowQRModal(true)
-    setWhatsappConnection((prev) => ({ ...prev, isConnecting: true }))
-
-    setTimeout(() => {
-      setWhatsappConnection((prev) => ({
-        ...prev,
-        qrCode: "/placeholder.svg?height=200&width=200&text=QR+Code",
-        isConnecting: false,
-      }))
-    }, 1000)
-
-    setTimeout(() => {
-      setWhatsappConnection({
-        isConnected: true,
-        accountName: "John's Business",
-        phoneNumber: "+92 300 1234567",
-        profilePicture: "/placeholder.svg?height=40&width=40",
-        isConnecting: false,
-      })
-      setShowQRModal(false)
-      setNotifications((prev) => ({ ...prev, whatsappEnabled: true }))
-    }, 10000)
+    // Remove the old mock logic - let the real API logic handle everything
   }, [])
 
   const handleDisconnectWhatsApp = useCallback(() => {
-    setWhatsappConnection({
-      isConnected: false,
-      isConnecting: false,
-    })
-    setNotifications((prev) => ({ ...prev, whatsappEnabled: false }))
-  }, [])
+    disconnectWhatsApp()
+  }, [disconnectWhatsApp])
 
   const handleSave = useCallback(async () => {
     setIsSaving(true)
@@ -240,6 +370,17 @@ export default function Settings() {
             </Banner>
           )}
 
+          {whatsappConnection.error && (
+            <Banner
+              title="WhatsApp Connection Error"
+              tone="critical"
+              onDismiss={() => setWhatsappConnection((prev) => ({ ...prev, error: null }))}
+              icon={AlertTriangleIcon}
+            >
+              <Text as="p">{whatsappConnection.error}</Text>
+            </Banner>
+          )}
+
           {/* Stats Overview */}
           <Card>
             <BlockStack gap="400">
@@ -266,7 +407,7 @@ export default function Settings() {
                     </BlockStack>
                   </Card>
                 </Grid.Cell>
-          
+
                 <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 2, lg: 2, xl: 2 }}>
                   <Card background="bg-surface-info-subdued">
                     <BlockStack gap="200">
@@ -287,7 +428,7 @@ export default function Settings() {
                   <Card
                     background={whatsappConnection.isConnected ? "bg-surface-success-subdued" : "bg-surface-subdued"}
                   >
-                    <BlockStack  gap="200">
+                    <BlockStack gap="200">
                       <InlineStack align="space-between">
                         <Icon source={ChatIcon} tone={whatsappConnection.isConnected ? "success" : "subdued"} />
                         <Badge tone={whatsappConnection.isConnected ? "success" : "attention"}>
@@ -405,7 +546,6 @@ export default function Settings() {
                     </BlockStack>
                     <Badge tone="info">{enabledCouriers}/4 Active</Badge>
                   </InlineStack>
-
                   <Grid>
                     {Object.entries(credentials).map(([courier, config]) => (
                       <Grid.Cell key={courier} columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
@@ -445,13 +585,10 @@ export default function Settings() {
                                 <Checkbox
                                   label=""
                                   checked={config.enabled}
-                                  onChange={(value) =>
-                                    handleCredentialChange(courier , "enabled", value)
-                                  }
+                                  onChange={(value) => handleCredentialChange(courier, "enabled", value)}
                                 />
                               </InlineStack>
                             </InlineStack>
-
                             <Collapsible
                               open={config.enabled}
                               id={`${courier}-config`}
@@ -465,9 +602,7 @@ export default function Settings() {
                                       label="API Key"
                                       type={showApiKeys[courier] ? "text" : "password"}
                                       value={config.apiKey}
-                                      onChange={(value) =>
-                                        handleCredentialChange(courier, "apiKey", value)
-                                      }
+                                      onChange={(value) => handleCredentialChange(courier, "apiKey", value)}
                                       placeholder="Enter your API key"
                                       autoComplete="off"
                                       connectedRight={
@@ -521,7 +656,6 @@ export default function Settings() {
                     </BlockStack>
                     <Icon source={ChatIcon} tone="base" />
                   </InlineStack>
-
                   {whatsappConnection.isConnected ? (
                     <Card sectioned background="bg-surface-success-subdued">
                       <BlockStack gap="400">
@@ -561,7 +695,6 @@ export default function Settings() {
                             </Button>
                           </ButtonGroup>
                         </InlineStack>
-
                         <Banner tone="success" icon={CheckIcon}>
                           <Text as="p">
                             Your WhatsApp Business account is connected and ready to send notifications to customers.
@@ -574,9 +707,10 @@ export default function Settings() {
                       heading="Connect WhatsApp Business"
                       image="/placeholder.svg?height=200&width=200&text=WhatsApp"
                       action={{
-                        content: "Connect WhatsApp",
+                        content: whatsappConnection.isConnecting ? "Connecting..." : "Connect WhatsApp",
                         onAction: handleConnectWhatsApp,
                         icon: ConnectIcon,
+                        loading: whatsappConnection.isConnecting,
                       }}
                     >
                       <Text as="p">
@@ -602,7 +736,6 @@ export default function Settings() {
                           </Text>
                           <Badge tone="info">{totalNotifications}/2 Active</Badge>
                         </InlineStack>
-
                         <BlockStack gap="400">
                           <Card
                             sectioned
@@ -630,7 +763,6 @@ export default function Settings() {
                               />
                             </InlineStack>
                           </Card>
-
                           <Card
                             sectioned
                             background={notifications.emailEnabled ? "bg-surface-success-subdued" : undefined}
@@ -658,7 +790,6 @@ export default function Settings() {
                       </BlockStack>
                     </Card>
                   </Grid.Cell>
-
                   <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
                     <Card>
                       <BlockStack gap="500">
@@ -666,18 +797,20 @@ export default function Settings() {
                           <Text variant="headingMd" as="h3">
                             Message Templates
                           </Text>
-                          <Button icon={QuestionCircleIcon} variant="tertiary" onClick={() => setShowTemplateModal(true)}>
+                          <Button
+                            icon={QuestionCircleIcon}
+                            variant="tertiary"
+                            onClick={() => setShowTemplateModal(true)}
+                          >
                             Variables Guide
                           </Button>
                         </InlineStack>
-
                         <Banner tone="info" icon={NoteIcon}>
                           <Text as="p">
                             Use dynamic variables to personalize messages: {customerName}, {orderNumber}, {status},{" "}
                             {trackingUrl}
                           </Text>
                         </Banner>
-
                         <BlockStack gap="400">
                           <TextField
                             label="WhatsApp Template"
@@ -689,7 +822,6 @@ export default function Settings() {
                               !notifications.whatsappEnabled ? "Enable WhatsApp notifications to edit template" : ""
                             }
                           />
-
                           <TextField
                             label="Email Template"
                             value={notifications.emailTemplate}
@@ -716,6 +848,13 @@ export default function Settings() {
               content: "Cancel",
               onAction: () => setShowQRModal(false),
             }}
+            secondaryActions={[
+              {
+                content: "Refresh QR Code",
+                onAction: fetchQRCode,
+                disabled: whatsappConnection.isConnecting,
+              },
+            ]}
           >
             <Modal.Section>
               <BlockStack gap="500" align="center">
@@ -730,16 +869,31 @@ export default function Settings() {
                       Generating QR code...
                     </Text>
                   </BlockStack>
-                ) : (
+                ) : whatsappConnection.error ? (
+                  <BlockStack gap="400" align="center">
+                    <Banner tone="critical" icon={AlertTriangleIcon}>
+                      <Text as="p">{whatsappConnection.error}</Text>
+                    </Banner>
+                    <Button onClick={fetchQRCode} variant="primary">
+                      Try Again
+                    </Button>
+                  </BlockStack>
+                ) : whatsappConnection.isConnected ? (
+                  <BlockStack gap="400" align="center">
+                    <Icon source={CheckIcon} tone="success" />
+                    <Banner tone="success" icon={CheckIcon}>
+                      <Text as="p">WhatsApp connected successfully! This window will close automatically.</Text>
+                    </Banner>
+                  </BlockStack>
+                ) : whatsappConnection.qrCode ? (
                   <BlockStack gap="500" align="center">
                     <Card sectioned>
                       <img
-                        src={whatsappConnection.qrCode || "/placeholder.svg?height=200&width=200&text=QR+Code"}
+                        src={whatsappConnection.qrCode || "/placeholder.svg"}
                         alt="WhatsApp QR Code"
                         style={{ width: "200px", height: "200px", display: "block" }}
                       />
                     </Card>
-
                     <BlockStack gap="300">
                       <Text variant="bodyMd" as="p" alignment="center" fontWeight="semibold">
                         Setup Instructions:
@@ -765,12 +919,14 @@ export default function Settings() {
                         </InlineStack>
                       </BlockStack>
                     </BlockStack>
-
-                    <Banner tone="warning">
-                      <Text as="p">Connection will be established automatically once you scan the QR code</Text>
+                    <Banner tone="info">
+                      <Text as="p">
+                        Connection will be established automatically once you scan the QR code. This page will refresh
+                        every 3 seconds to check for connection.
+                      </Text>
                     </Banner>
                   </BlockStack>
-                )}
+                ) : null}
               </BlockStack>
             </Modal.Section>
           </Modal>
