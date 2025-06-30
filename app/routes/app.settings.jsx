@@ -72,7 +72,9 @@ export default function Settings() {
     }))
 
     try {
-      const response = await fetch("/app/whatsapp/qr")
+      const storeId = window.location.search.split("=")[1]
+      console.log("Fetching QR code for storeId:", storeId)
+      const response = await fetch(`/app/whatsapp/qr?storeId=${1234}`)
       const data = await response.json()
 
       if (data.success) {

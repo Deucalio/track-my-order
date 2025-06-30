@@ -1,56 +1,65 @@
-// app/routes/app.whatsapp.status.jsx
-import { json } from "@remix-run/node";
-import whatsappService from "../services/whatsapp.server.js";
+import { json } from "@remix-run/node"
+import whatsappService from "../services/whatsapp.server.js"
 
-export async function loader() {
+export async function loader({ request }) {
   try {
-    const status = await whatsappService.getStatus();
+    const url = new URL(request.url)
+    const storeId = 1234
+
+    const status = await whatsappService.getStatus(storeId)
+
     return json({
       success: true,
       status: status,
-      timestamp: new Date().toISOString()
-    });
+      timestamp: new Date().toISOString(),
+    })
   } catch (error) {
-    return json({
-      success: false,
-      error: error.message
-    }, { status: 500 });
+    return json(
+      {
+        success: false,
+        error: error.message,
+      },
+      { status: 500 },
+    )
   }
 }
 
 export async function action({ request }) {
-  const method = request.method;
+  const method = request.method
 
-  switch (method) {
-    case "DELETE":
-      try {
-        await whatsappService.disconnect();
+  try {
+    const formData = await request.formData()
+    const storeId = formData.get("storeId")
+
+    if (!storeId) {
+      return json({ success: false, error: "storeId is required" }, { status: 400 })
+    }
+
+    switch (method) {
+      case "DELETE":
+        await whatsappService.disconnect(storeId)
         return json({
           success: true,
-          message: "WhatsApp service disconnected"
-        });
-      } catch (error) {
-        return json({
-          success: false,
-          error: error.message
-        }, { status: 500 });
-      }
+          message: `WhatsApp service disconnected for store ${storeId}`,
+        })
 
-    case "POST":
-      try {
-        await whatsappService.initialize();
+      case "POST":
+        await whatsappService.initialize(storeId)
         return json({
           success: true,
-          message: "WhatsApp service initialized"
-        });
-      } catch (error) {
-        return json({
-          success: false,
-          error: error.message
-        }, { status: 500 });
-      }
+          message: `WhatsApp service initialized for store ${storeId}`,
+        })
 
-    default:
-      return json({ error: "Method not allowed" }, { status: 405 });
+      default:
+        return json({ error: "Method not allowed" }, { status: 405 })
+    }
+  } catch (error) {
+    return json(
+      {
+        success: false,
+        error: error.message,
+      },
+      { status: 500 },
+    )
   }
 }
