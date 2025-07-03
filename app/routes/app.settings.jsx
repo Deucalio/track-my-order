@@ -105,7 +105,7 @@ export default function Settings() {
             isConnecting: false,
             isConnected: false,
           }));
-        } else if (data.status?.isReady) {
+        } else if (data.data?.isReady) {
           // Already connected
           setWhatsappConnection((prev) => ({
             ...prev,
@@ -147,7 +147,7 @@ export default function Settings() {
       );
       const data = await response.json();
 
-      if (data.success && data.status?.isReady) {
+      if (data.success && data.data?.isReady) {
         setWhatsappConnection((prev) => ({
           ...prev,
           isConnected: true,
