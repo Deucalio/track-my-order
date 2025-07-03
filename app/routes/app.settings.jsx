@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useLocation } from "@remix-run/react";
 
 import {
@@ -26,8 +26,10 @@ import {
   Grid,
   ProgressBar,
   EmptyState,
+  InlineError,
   Collapsible,
 } from "@shopify/polaris";
+import actions from "./utils/actions";
 
 import {
   DeliveryFilledIcon,
@@ -67,9 +69,19 @@ export const loader = async ({ request }) => {
 };
 
 export default function Settings() {
+  // All the Data that e'll be fetching from Backend
+  const [connectedCouriers, setConnectedCouriers] = useState(null);
+
+  // ___________________
+
+  // REFS
+  const couriersRef = useRef(null);
+  const [isTabLoading, setIsTabLoading] = useState(false);
+
+  const [errorMessage, setErrorMessage] = useState("");
   const location = useLocation();
   const { shopData, WHATSAPP_API_URL } = useLoaderData();
-  console.log("shopData", shopData, "WHATSAPP_API_URL", WHATSAPP_API_URL);
+  // console.log("shopData", shopData, "WHATSAPP_API_URL", WHATSAPP_API_URL);
 
   const [showQRModal, setShowQRModal] = useState(false);
   const [whatsappConnection, setWhatsappConnection] = useState({
@@ -142,9 +154,7 @@ export default function Settings() {
   // Function to check connection status
   const checkConnectionStatus = useCallback(async () => {
     try {
-      const response = await fetch(
-        `${WHATSAPP_API_URL}/status/${shopData.id}`,
-      );
+      const response = await fetch(`${WHATSAPP_API_URL}/status/${shopData.id}`);
       const data = await response.json();
 
       if (data.success && data.data?.isReady) {
@@ -153,10 +163,14 @@ export default function Settings() {
           isConnected: true,
           isConnecting: false,
           qrCode: null,
-          accountName: data.status.accountName || "WhatsApp Business",
-          phoneNumber: data.status.phoneNumber || "+92 XXX XXXXXXX",
+          accountName:
+            data.data?.session?.meta_data?.pushname || "WhatsApp Business",
+          phoneNumber:
+            `+${data.data?.session?.meta_data?.phone_number}` ||
+            "+92 XXX XXXXXXX",
           profilePicture:
-            data.status.profilePicture || "/placeholder.svg?height=40&width=40",
+            data.data?.session?.meta_data?.profile_picture_url ||
+            "/placeholder.svg?height=40&width=40",
         }));
         return true;
       }
@@ -176,13 +190,16 @@ export default function Settings() {
 
       // send storeId to backend using POST in data
 
-      const response = await fetch(`${WHATSAPP_API_URL}/disconnect/${shopData.id}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await fetch(
+        `${WHATSAPP_API_URL}/disconnect/${shopData.id}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ storeId: shopData.id }),
         },
-        body: JSON.stringify({ storeId: shopData.id }),
-      });
+      );
 
       const data = await response.json();
 
@@ -260,38 +277,72 @@ export default function Settings() {
 
   const [credentials, setCredentials] = useState({
     tcs: {
-      apiKey: "",
+      requiredData: {
+        apiKey: "",
+        apiPassword: "",
+      },
       enabled: false,
+      courierCode: "TCS",
       logo: "🚚",
       color: "#dc2626",
       name: "TCS Express",
       description: "Pakistan's leading courier service",
     },
     leopards: {
-      apiKey: "",
+      requiredData: {
+        apiKey: "",
+        apiPassword: "",
+      },
       enabled: false,
+      courierCode: "LCS",
       logo: "🐆",
       color: "#ea580c",
       name: "Leopards Courier",
       description: "Fast and reliable delivery nationwide",
     },
     mnp: {
-      apiKey: "",
+      requiredData: {
+        apiKey: "",
+        apiPassword: "",
+      },
       enabled: false,
+      courierCode: "MNP",
       logo: "📦",
       color: "#2563eb",
       name: "M&P Express",
       description: "Express delivery solutions",
     },
     postex: {
-      apiKey: "",
+      requiredData: {
+        apiKey: "",
+        apiPassword: "",
+      },
       enabled: false,
+      courierCode: "PTX",
       logo: "✉️",
       color: "#16a34a",
       name: "Postex Pakistan",
       description: "Comprehensive logistics network",
     },
   });
+
+  useEffect(() => {
+    console.log("cred:", credentials);
+  }, [credentials]);
+
+  useEffect(() => {
+    // reset errorMessage to = "" after 5 seconds
+    let timer;
+    if (errorMessage) {
+      timer = setTimeout(() => {
+        setErrorMessage("");
+      }, 5000);
+    }
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [errorMessage]);
 
   const [notifications, setNotifications] = useState({
     whatsappEnabled: false,
@@ -310,13 +361,27 @@ export default function Settings() {
   const [selectedCourier, setSelectedCourier] = useState("");
 
   const handleCredentialChange = useCallback((courier, field, value) => {
-    setCredentials((prev) => ({
-      ...prev,
-      [courier]: {
+    // setCredentials((prev) => ({
+    //   ...prev,
+    //   [courier]: {
+    //     ...prev[courier],
+    //     [field]: value,
+    //   },
+    // }));
+
+    setCredentials((prev) => {
+      const updatedCourier = {
         ...prev[courier],
-        [field]: value,
-      },
-    }));
+        requiredData: {
+          ...prev[courier].requiredData,
+          [field]: value,
+        },
+      };
+      return {
+        ...prev,
+        [courier]: updatedCourier,
+      };
+    });
   }, []);
 
   const handleNotificationChange = useCallback((field, value) => {
@@ -342,6 +407,51 @@ export default function Settings() {
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
   }, []);
+
+  const handleCourierSave = async (courierName) => {
+    setIsSaving(true);
+
+    // Prepare data to save
+
+    const courierData = credentials[courierName].requiredData;
+    const courierCode = credentials[courierName].courierCode;
+    const storeID = shopData.id;
+
+    console.log("Saving courier settings:", courierData);
+
+    let res;
+    try {
+      res = await fetch("/api/couriers/connect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          meta_data: courierData,
+          courierCode: courierCode,
+          storeID: storeID,
+        }),
+      });
+      res = await res.json();
+      if (!res.data.success) {
+        setErrorMessage(res.data.message || "Failed to save courier settings");
+      }
+    } catch (error) {
+      console.error("Error saving courier settings:", error);
+      setIsSaving(false);
+      setSaveSuccess(false);
+      setErrorMessage(error.message || "Failed to save courier settings");
+      return;
+    }
+
+    console.log("Res:", res);
+
+    // Reset the credentials for the courier
+    
+
+
+    setIsSaving(false);
+  };
 
   const toggleApiKeyVisibility = (courier) => {
     setShowApiKeys((prev) => ({
@@ -395,6 +505,48 @@ export default function Settings() {
     setSelectedCourier(courier);
     setShowCourierModal(true);
   };
+
+  useEffect(() => {
+
+
+
+    if (selectedTab === 1) {
+    // Set all credentials enabled  to false
+      setCredentials((prev) => {
+        const updated = {};
+        for (const key in prev) {
+          updated[key] = {
+            ...prev[key],
+            enabled: false, // Reset all to false
+          };
+        }
+        return updated;
+      })
+
+      const couriers = actions.getAllCouriers(shopData.id);
+      setIsTabLoading(true);
+
+      couriers.then((data) => {
+        console.log("data: :V ", data);
+        //   {
+        //     "success": true,
+        //     "response": {
+        //         "success": true,
+        //         "couriers": [],
+        //         "method": "GET"
+        //     }
+        // }
+        if (data.success) {
+          couriersRef.current.style.opacity = "100%";
+          couriersRef.current.style.pointerEvents = "auto";
+          setConnectedCouriers(data.response.couriers);
+        } else {
+          console.error("Error fetching couriers:", data.message);
+        }
+        setIsTabLoading(false);
+      });
+    }
+  }, [selectedTab]);
 
   return (
     <div
@@ -670,77 +822,117 @@ export default function Settings() {
                     </BlockStack>
                     <Badge tone="info">{enabledCouriers}/4 Active</Badge>
                   </InlineStack>
-                  <Grid>
-                    {Object.entries(credentials).map(([courier, config]) => (
-                      <Grid.Cell
-                        key={courier}
-                        columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}
+                  <div
+                    ref={couriersRef}
+                    style={{
+                      opacity: "50%",
+                      animation: "ease-in-out",
+                      transition: "opacity 0.3s",
+                      pointerEvents: "none",
+                      position: "relative",
+                    }}
+                  >
+                    {isTabLoading && (
+                      <div
+                        style={{
+                          // Make it appear on center
+                          position: "absolute",
+                          top: "50%",
+                          left: "50%",
+                          transform: "translate(-50%, -50%)",
+                          display: "flex",
+                          alignItems: "center",
+                        }}
                       >
-                        <Card
-                          sectioned
-                          background={
-                            config.enabled
-                              ? "bg-surface-success-subdued"
-                              : undefined
-                          }
+                        <Spinner
+                          accessibilityLabel="Spinner example"
+                          size="small"
+                        />
+                      </div>
+                    )}
+
+                    <Grid>
+                      {Object.entries(credentials).map(([courier, config]) => (
+                        <Grid.Cell
+                          key={courier}
+                          columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}
                         >
-                          <BlockStack gap="400">
-                            <InlineStack align="space-between">
-                              <InlineStack gap="300" align="center">
-                                <div
-                                  style={{
-                                    width: "48px",
-                                    height: "48px",
-                                    borderRadius: "8px",
-                                    backgroundColor: config.color,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "24px",
-                                  }}
-                                >
-                                  {config.logo}
-                                </div>
-                                <BlockStack gap="100">
-                                  <Text variant="headingMd" as="h4">
-                                    {config.name}
-                                  </Text>
-                                  <Text variant="bodyMd" as="p" tone="subdued">
-                                    {config.description}
-                                  </Text>
-                                </BlockStack>
+                          <Card
+                            sectioned
+                            background={
+                              config.enabled
+                                ? "bg-surface-success-subdued"
+                                : undefined
+                            }
+                          >
+                            <BlockStack gap="400">
+                              <InlineStack align="space-between">
+                                <InlineStack gap="300" align="center">
+                                  <div
+                                    style={{
+                                      width: "48px",
+                                      height: "48px",
+                                      borderRadius: "8px",
+                                      backgroundColor: config.color,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      fontSize: "24px",
+                                    }}
+                                  >
+                                    {config.logo}
+                                  </div>
+                                  <BlockStack gap="100">
+                                    <Text variant="headingMd" as="h4">
+                                      {config.name}
+                                    </Text>
+                                    <Text
+                                      variant="bodyMd"
+                                      as="p"
+                                      tone="subdued"
+                                    >
+                                      {config.description}
+                                    </Text>
+                                  </BlockStack>
+                                </InlineStack>
+                                <InlineStack gap="200" align="center">
+                                  {config.enabled && (
+                                    <Badge tone="success" icon={CheckIcon}>
+                                      Active
+                                    </Badge>
+                                  )}
+                                  <Checkbox
+                                    label=""
+                                    checked={config.enabled}
+                                    onChange={(value) => {
+                                      setCredentials((prev) => {
+                                        const updated = {};
+                                        for (const key in prev) {
+                                          updated[key] = {
+                                            ...prev[key],
+                                            enabled:
+                                              key === courier ? value : false,
+                                          };
+                                        }
+                                        return updated;
+                                      });
+                                    }}
+                                  />
+                                </InlineStack>
                               </InlineStack>
-                              <InlineStack gap="200" align="center">
-                                {config.enabled && (
-                                  <Badge tone="success" icon={CheckIcon}>
-                                    Active
-                                  </Badge>
-                                )}
-                                <Checkbox
-                                  label=""
-                                  checked={config.enabled}
-                                  onChange={(value) =>
-                                    handleCredentialChange(
-                                      courier,
-                                      "enabled",
-                                      value,
-                                    )
-                                  }
-                                />
-                              </InlineStack>
-                            </InlineStack>
-                            <Collapsible
-                              open={config.enabled}
-                              id={`${courier}-config`}
-                              transition={{
-                                duration: "200ms",
-                                timingFunction: "ease-in-out",
-                              }}
-                            >
-                              <BlockStack gap="400">
-                                <Divider />
-                                <InlineStack gap="200">
-                                  <Box width="100%">
+                              <Collapsible
+                                open={config.enabled}
+                                id={`${courier}-config`}
+                                transition={{
+                                  duration: "200ms",
+                                  timingFunction: "ease-in-out",
+                                }}
+                              >
+                                <BlockStack gap="400">
+                                  <Divider />
+                                  <InlineStack gap="200">
+                                    {/* <Box width="100%">
+
                                     <TextField
                                       label="API Key"
                                       type={
@@ -772,34 +964,94 @@ export default function Settings() {
                                         />
                                       }
                                     />
-                                  </Box>
-                                </InlineStack>
-                                <InlineStack gap="200">
-                                  <Button
-                                    icon={ExternalIcon}
-                                    onClick={() => openCourierModal(courier)}
-                                    variant="secondary"
-                                    size="slim"
-                                  >
-                                    API Documentation
-                                  </Button>
-                                  <Tooltip content="Test your API connection">
+                                  </Box> */}
+                                    {Object.entries(config.requiredData).map(
+                                      ([field, value]) => {
+                                        const displayField =
+                                          field === "apiKey"
+                                            ? "API Key"
+                                            : field === "apiPassword"
+                                              ? "API Password"
+                                              : field;
+                                        return (
+                                          <Box width="100%" key={field}>
+                                            <TextField
+                                              disabled={isSaving}
+                                              label={displayField}
+                                              type="text"
+                                              value={value}
+                                              onChange={(value) =>
+                                                handleCredentialChange(
+                                                  courier,
+                                                  field,
+                                                  value,
+                                                )
+                                              }
+                                              placeholder={`Enter your ${displayField}`}
+                                              autoComplete="off"
+                                            />
+                                          </Box>
+                                        );
+                                      },
+                                    )}
+                                  </InlineStack>
+
+                                  {errorMessage && (
+                                    <InlineError
+                                      message={errorMessage}
+                                      fieldID={`${courier}-error`}
+                                    />
+                                  )}
+
+                                  <InlineStack gap="200">
                                     <Button
-                                      icon={ConnectIcon}
+                                      icon={ExternalIcon}
+                                      onClick={() => openCourierModal(config)}
                                       variant="secondary"
                                       size="slim"
                                     >
-                                      Test Connection
+                                      API Documentation
                                     </Button>
-                                  </Tooltip>
-                                </InlineStack>
-                              </BlockStack>
-                            </Collapsible>
-                          </BlockStack>
-                        </Card>
-                      </Grid.Cell>
-                    ))}
-                  </Grid>
+                                    <Tooltip
+                                      content={`${isSaving ? "Saving..." : "Save Settings"}`}
+                                    >
+                                      <div
+                                        style={{ display: "flex", gap: "10px" }}
+                                      >
+                                        <Button
+                                          disabled={
+                                            isSaving ||
+                                            Object.values(
+                                              config.requiredData,
+                                            ).some((value) => !value.trim())
+                                          }
+                                          onClick={() =>
+                                            handleCourierSave(courier)
+                                          }
+                                          variant="primary"
+                                          size="slim"
+                                        >
+                                          Save
+                                        </Button>
+                                        {isSaving && (
+                                          <div>
+                                            <Spinner
+                                              accessibilityLabel="Spinner example"
+                                              size="small"
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </Tooltip>
+                                  </InlineStack>
+                                </BlockStack>
+                              </Collapsible>
+                            </BlockStack>
+                          </Card>
+                        </Grid.Cell>
+                      ))}
+                    </Grid>
+                  </div>
                 </BlockStack>
               </Card>
             )}
@@ -825,11 +1077,31 @@ export default function Settings() {
                       <BlockStack gap="400">
                         <InlineStack align="space-between">
                           <InlineStack gap="400" align="center">
-                            <Avatar
-                              source={whatsappConnection.profilePicture}
-                              size="lg"
-                              name={whatsappConnection.accountName}
-                            />
+                            <div
+                              style={{
+                                width: "80px",
+                                height: "80px",
+                                borderRadius: "16px",
+                                overflow: "hidden",
+                                border: "3px solid #00a047",
+                                boxShadow: "0 4px 8px rgba(0, 160, 71, 0.2)",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {/* <Avatar
+                                source={whatsappConnection.profilePicture}
+                                name={whatsappConnection.accountName}
+                                shape="square"
+                              /> */}
+                              <img
+                                src={whatsappConnection.profilePicture}
+                                style={{
+                                  height: "100%",
+                                  backgroundPosition: "center",
+                                  backgroundSize: "cover",
+                                }}
+                              />
+                            </div>
                             <BlockStack gap="100">
                               <Text variant="headingMd" as="h4">
                                 {whatsappConnection.accountName}
