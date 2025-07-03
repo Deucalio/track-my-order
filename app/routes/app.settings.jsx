@@ -1,6 +1,7 @@
-"use client"
+"use client";
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect } from "react";
+import { useLocation } from "@remix-run/react";
 
 import {
   Page,
@@ -26,7 +27,7 @@ import {
   ProgressBar,
   EmptyState,
   Collapsible,
-} from "@shopify/polaris"
+} from "@shopify/polaris";
 
 import {
   DeliveryFilledIcon,
@@ -43,15 +44,34 @@ import {
   MobileIcon,
   NoteIcon,
   AlertTriangleIcon,
-} from "@shopify/polaris-icons"
+} from "@shopify/polaris-icons";
+import { useLoaderData } from "@remix-run/react";
+import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 
-const customerName = "{{customerName}}"
-const orderNumber = "{{orderNumber}}"
-const trackingUrl = "{{trackingUrl}}"
-const status = "{{status}}"
+const customerName = "{{customerName}}";
+const orderNumber = "{{orderNumber}}";
+const trackingUrl = "{{trackingUrl}}";
+const status = "{{status}}";
+
+export const loader = async ({ request }) => {
+  await authenticate.admin(request);
+
+  const { session } = await authenticate.admin(request);
+
+  const shopData = await prisma.stores.findFirst({
+    where: { shopify_domain: session.shop },
+  });
+
+  return { shopData, WHATSAPP_API_URL: process.env.WHATSAPP_API_URL };
+};
 
 export default function Settings() {
-  const [showQRModal, setShowQRModal] = useState(false)
+  const location = useLocation();
+  const { shopData, WHATSAPP_API_URL } = useLoaderData();
+  console.log("shopData", shopData, "WHATSAPP_API_URL", WHATSAPP_API_URL);
+
+  const [showQRModal, setShowQRModal] = useState(false);
   const [whatsappConnection, setWhatsappConnection] = useState({
     isConnecting: false,
     isConnected: false,
@@ -60,7 +80,7 @@ export default function Settings() {
     accountName: null,
     phoneNumber: null,
     profilePicture: null,
-  })
+  });
 
   // Function to fetch QR code
   const fetchQRCode = useCallback(async () => {
@@ -69,13 +89,13 @@ export default function Settings() {
       isConnecting: true,
       error: null,
       qrCode: null,
-    }))
+    }));
 
     try {
-      const storeId = window.location.search.split("=")[1]
-      console.log("Fetching QR code for storeId:", storeId)
-      const response = await fetch(`/app/whatsapp/qr?storeId=${1234}`)
-      const data = await response.json()
+      const storeId = window.location;
+      console.log("Fetching QR code for storeId:", storeId, shopData);
+      const response = await fetch(`${WHATSAPP_API_URL}/qr/${shopData.id}`);
+      const data = await response.json();
 
       if (data.success) {
         if (data.qrCode) {
@@ -84,7 +104,7 @@ export default function Settings() {
             qrCode: data.qrCode,
             isConnecting: false,
             isConnected: false,
-          }))
+          }));
         } else if (data.status?.isReady) {
           // Already connected
           setWhatsappConnection((prev) => ({
@@ -94,34 +114,38 @@ export default function Settings() {
             qrCode: null,
             accountName: data.status.accountName || "WhatsApp Business",
             phoneNumber: data.status.phoneNumber || "+92 XXX XXXXXXX",
-            profilePicture: data.status.profilePicture || "/placeholder.svg?height=40&width=40",
-          }))
-          setShowQRModal(false)
+            profilePicture:
+              data.status.profilePicture ||
+              "/placeholder.svg?height=40&width=40",
+          }));
+          setShowQRModal(false);
         } else {
           // Still generating, try again in 2 seconds
-          setTimeout(fetchQRCode, 2000)
+          setTimeout(fetchQRCode, 2000);
         }
       } else {
         setWhatsappConnection((prev) => ({
           ...prev,
           error: data.error || "Failed to generate QR code",
           isConnecting: false,
-        }))
+        }));
       }
     } catch (error) {
       setWhatsappConnection((prev) => ({
         ...prev,
         error: "Network error: " + error.message,
         isConnecting: false,
-      }))
+      }));
     }
-  }, [])
+  }, []);
 
   // Function to check connection status
   const checkConnectionStatus = useCallback(async () => {
     try {
-      const response = await fetch("/app/whatsapp/status")
-      const data = await response.json()
+      const response = await fetch(
+        `${WHATSAPP_API_URL}/status/${shopData.id}`,
+      );
+      const data = await response.json();
 
       if (data.success && data.status?.isReady) {
         setWhatsappConnection((prev) => ({
@@ -131,24 +155,36 @@ export default function Settings() {
           qrCode: null,
           accountName: data.status.accountName || "WhatsApp Business",
           phoneNumber: data.status.phoneNumber || "+92 XXX XXXXXXX",
-          profilePicture: data.status.profilePicture || "/placeholder.svg?height=40&width=40",
-        }))
-        return true
+          profilePicture:
+            data.status.profilePicture || "/placeholder.svg?height=40&width=40",
+        }));
+        return true;
       }
-      return false
+      return false;
     } catch (error) {
-      console.error("Error checking status:", error)
-      return false
+      console.error("Error checking status:", error);
+      return false;
     }
-  }, [])
+  }, []);
 
   // Function to disconnect WhatsApp
   const disconnectWhatsApp = useCallback(async () => {
     try {
-      const response = await fetch("/app/whatsapp/disconnect", {
+      // const response = await fetch("/app/whatsapp/disconnect", {
+      //   method: "POST",
+      // });
+
+      // send storeId to backend using POST in data
+
+      const response = await fetch(`${WHATSAPP_API_URL}/disconnect/${shopData.id}`, {
         method: "POST",
-      })
-      const data = await response.json()
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ storeId: shopData.id }),
+      });
+
+      const data = await response.json();
 
       if (data.success) {
         setWhatsappConnection({
@@ -159,21 +195,21 @@ export default function Settings() {
           accountName: null,
           phoneNumber: null,
           profilePicture: null,
-        })
-        setNotifications((prev) => ({ ...prev, whatsappEnabled: false }))
+        });
+        setNotifications((prev) => ({ ...prev, whatsappEnabled: false }));
       } else {
         setWhatsappConnection((prev) => ({
           ...prev,
           error: data.error || "Failed to disconnect WhatsApp",
-        }))
+        }));
       }
     } catch (error) {
       setWhatsappConnection((prev) => ({
         ...prev,
         error: "Network error: " + error.message,
-      }))
+      }));
     }
-  }, [])
+  }, []);
 
   // Effect to handle modal opening
   useEffect(() => {
@@ -181,37 +217,46 @@ export default function Settings() {
       // First check if already connected
       checkConnectionStatus().then((isConnected) => {
         if (!isConnected) {
-          fetchQRCode()
+          fetchQRCode();
         }
-      })
+      });
     }
-  }, [showQRModal, checkConnectionStatus, fetchQRCode])
+  }, [showQRModal, checkConnectionStatus, fetchQRCode]);
 
   // Poll for connection status when QR is shown
   useEffect(() => {
-    let interval
+    let interval;
 
-    if (showQRModal && whatsappConnection.qrCode && !whatsappConnection.isConnected) {
+    if (
+      showQRModal &&
+      whatsappConnection.qrCode &&
+      !whatsappConnection.isConnected
+    ) {
       interval = setInterval(async () => {
-        const isConnected = await checkConnectionStatus()
+        const isConnected = await checkConnectionStatus();
         if (isConnected) {
           // Close modal after successful connection
           setTimeout(() => {
-            setShowQRModal(false)
-          }, 2000)
+            setShowQRModal(false);
+          }, 2000);
         }
-      }, 3000) // Check every 3 seconds
+      }, 3000); // Check every 3 seconds
     }
 
     return () => {
-      if (interval) clearInterval(interval)
-    }
-  }, [showQRModal, whatsappConnection.qrCode, whatsappConnection.isConnected, checkConnectionStatus])
+      if (interval) clearInterval(interval);
+    };
+  }, [
+    showQRModal,
+    whatsappConnection.qrCode,
+    whatsappConnection.isConnected,
+    checkConnectionStatus,
+  ]);
 
   // Check connection status on component mount
   useEffect(() => {
-    checkConnectionStatus()
-  }, [checkConnectionStatus])
+    checkConnectionStatus();
+  }, [checkConnectionStatus]);
 
   const [credentials, setCredentials] = useState({
     tcs: {
@@ -246,23 +291,23 @@ export default function Settings() {
       name: "Postex Pakistan",
       description: "Comprehensive logistics network",
     },
-  })
+  });
 
   const [notifications, setNotifications] = useState({
     whatsappEnabled: false,
     emailEnabled: true,
     whatsappTemplate: `Hi ${customerName}, your order ${orderNumber} is now ${status}. Track: ${trackingUrl}`,
     emailTemplate: `Dear ${customerName},\n\nYour order ${orderNumber} status has been updated to: ${status}\n\nYou can track your package here: ${trackingUrl}\n\nThank you for your business!`,
-  })
+  });
 
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
-  const [showApiKeys, setShowApiKeys] = useState({})
-  const [selectedTab, setSelectedTab] = useState(0)
-  const [expandedCouriers, setExpandedCouriers] = useState({})
-  const [showTemplateModal, setShowTemplateModal] = useState(false)
-  const [showCourierModal, setShowCourierModal] = useState(false)
-  const [selectedCourier, setSelectedCourier] = useState("")
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showApiKeys, setShowApiKeys] = useState({});
+  const [selectedTab, setSelectedTab] = useState(0);
+  const [expandedCouriers, setExpandedCouriers] = useState({});
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showCourierModal, setShowCourierModal] = useState(false);
+  const [selectedCourier, setSelectedCourier] = useState("");
 
   const handleCredentialChange = useCallback((courier, field, value) => {
     setCredentials((prev) => ({
@@ -271,49 +316,53 @@ export default function Settings() {
         ...prev[courier],
         [field]: value,
       },
-    }))
-  }, [])
+    }));
+  }, []);
 
   const handleNotificationChange = useCallback((field, value) => {
     setNotifications((prev) => ({
       ...prev,
       [field]: value,
-    }))
-  }, [])
+    }));
+  }, []);
 
   const handleConnectWhatsApp = useCallback(async () => {
-    setShowQRModal(true)
+    setShowQRModal(true);
     // Remove the old mock logic - let the real API logic handle everything
-  }, [])
+  }, []);
 
   const handleDisconnectWhatsApp = useCallback(() => {
-    disconnectWhatsApp()
-  }, [disconnectWhatsApp])
+    disconnectWhatsApp();
+  }, [disconnectWhatsApp]);
 
   const handleSave = useCallback(async () => {
-    setIsSaving(true)
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    setIsSaving(false)
-    setSaveSuccess(true)
-    setTimeout(() => setSaveSuccess(false), 3000)
-  }, [])
+    setIsSaving(true);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    setIsSaving(false);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
+  }, []);
 
   const toggleApiKeyVisibility = (courier) => {
     setShowApiKeys((prev) => ({
       ...prev,
       [courier]: !prev[courier],
-    }))
-  }
+    }));
+  };
 
   const toggleCourierExpanded = (courier) => {
     setExpandedCouriers((prev) => ({
       ...prev,
       [courier]: !prev[courier],
-    }))
-  }
+    }));
+  };
 
-  const enabledCouriers = Object.entries(credentials).filter(([_, config]) => config.enabled).length
-  const totalNotifications = (notifications.whatsappEnabled ? 1 : 0) + (notifications.emailEnabled ? 1 : 0)
+  const enabledCouriers = Object.entries(credentials).filter(
+    ([_, config]) => config.enabled,
+  ).length;
+  const totalNotifications =
+    (notifications.whatsappEnabled ? 1 : 0) +
+    (notifications.emailEnabled ? 1 : 0);
 
   const tabs = [
     {
@@ -340,15 +389,20 @@ export default function Settings() {
       accessibilityLabel: "Notifications tab",
       panelID: "notifications-panel",
     },
-  ]
+  ];
 
   const openCourierModal = (courier) => {
-    setSelectedCourier(courier)
-    setShowCourierModal(true)
-  }
+    setSelectedCourier(courier);
+    setShowCourierModal(true);
+  };
 
   return (
-    <div style={{ background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)", minHeight: "100vh" }}>
+    <div
+      style={{
+        background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
+        minHeight: "100vh",
+      }}
+    >
       <Page
         title="Settings"
         subtitle="Configure courier integrations and customer notification preferences"
@@ -368,7 +422,9 @@ export default function Settings() {
               onDismiss={() => setSaveSuccess(false)}
               icon={CheckIcon}
             >
-              <Text as="p">Your delivery configuration has been updated and is now active.</Text>
+              <Text as="p">
+                Your delivery configuration has been updated and is now active.
+              </Text>
             </Banner>
           )}
 
@@ -376,7 +432,9 @@ export default function Settings() {
             <Banner
               title="WhatsApp Connection Error"
               tone="critical"
-              onDismiss={() => setWhatsappConnection((prev) => ({ ...prev, error: null }))}
+              onDismiss={() =>
+                setWhatsappConnection((prev) => ({ ...prev, error: null }))
+              }
               icon={AlertTriangleIcon}
             >
               <Text as="p">{whatsappConnection.error}</Text>
@@ -405,7 +463,11 @@ export default function Settings() {
                       <Text variant="bodyMd" as="p">
                         Active Couriers
                       </Text>
-                      <ProgressBar progress={(enabledCouriers / 4) * 100} tone="success" size="small" />
+                      <ProgressBar
+                        progress={(enabledCouriers / 4) * 100}
+                        tone="success"
+                        size="small"
+                      />
                     </BlockStack>
                   </Card>
                 </Grid.Cell>
@@ -422,19 +484,42 @@ export default function Settings() {
                       <Text variant="bodyMd" as="p">
                         Active Channels
                       </Text>
-                      <ProgressBar progress={(totalNotifications / 2) * 100} tone="info" size="small" />
+                      <ProgressBar
+                        progress={(totalNotifications / 2) * 100}
+                        tone="info"
+                        size="small"
+                      />
                     </BlockStack>
                   </Card>
                 </Grid.Cell>
                 <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 2, lg: 2, xl: 2 }}>
                   <Card
-                    background={whatsappConnection.isConnected ? "bg-surface-success-subdued" : "bg-surface-subdued"}
+                    background={
+                      whatsappConnection.isConnected
+                        ? "bg-surface-success-subdued"
+                        : "bg-surface-subdued"
+                    }
                   >
                     <BlockStack gap="200">
                       <InlineStack align="space-between">
-                        <Icon source={ChatIcon} tone={whatsappConnection.isConnected ? "success" : "subdued"} />
-                        <Badge tone={whatsappConnection.isConnected ? "success" : "attention"}>
-                          {whatsappConnection.isConnected ? "Connected" : "Offline"}
+                        <Icon
+                          source={ChatIcon}
+                          tone={
+                            whatsappConnection.isConnected
+                              ? "success"
+                              : "subdued"
+                          }
+                        />
+                        <Badge
+                          tone={
+                            whatsappConnection.isConnected
+                              ? "success"
+                              : "attention"
+                          }
+                        >
+                          {whatsappConnection.isConnected
+                            ? "Connected"
+                            : "Offline"}
                         </Badge>
                       </InlineStack>
                       <Text variant="bodyMd" as="p">
@@ -456,12 +541,18 @@ export default function Settings() {
                     Quick Setup Guide
                   </Text>
                   <Grid>
-                    <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+                    <Grid.Cell
+                      columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}
+                    >
                       <Card sectioned>
                         <BlockStack gap="300">
                           <InlineStack align="space-between">
                             <Icon source={DeliveryFilledIcon} tone="base" />
-                            <Badge tone={enabledCouriers > 0 ? "success" : "attention"}>
+                            <Badge
+                              tone={
+                                enabledCouriers > 0 ? "success" : "attention"
+                              }
+                            >
                               {enabledCouriers > 0 ? "Configured" : "Pending"}
                             </Badge>
                           </InlineStack>
@@ -473,20 +564,34 @@ export default function Settings() {
                           </Text>
                           <Button
                             onClick={() => setSelectedTab(1)}
-                            variant={enabledCouriers > 0 ? "secondary" : "primary"}
+                            variant={
+                              enabledCouriers > 0 ? "secondary" : "primary"
+                            }
                           >
-                            {enabledCouriers > 0 ? "Manage Couriers" : "Setup Couriers"}
+                            {enabledCouriers > 0
+                              ? "Manage Couriers"
+                              : "Setup Couriers"}
                           </Button>
                         </BlockStack>
                       </Card>
                     </Grid.Cell>
-                    <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+                    <Grid.Cell
+                      columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}
+                    >
                       <Card sectioned>
                         <BlockStack gap="300">
                           <InlineStack align="space-between">
                             <Icon source={ChatIcon} tone="base" />
-                            <Badge tone={whatsappConnection.isConnected ? "success" : "attention"}>
-                              {whatsappConnection.isConnected ? "Connected" : "Not Connected"}
+                            <Badge
+                              tone={
+                                whatsappConnection.isConnected
+                                  ? "success"
+                                  : "attention"
+                              }
+                            >
+                              {whatsappConnection.isConnected
+                                ? "Connected"
+                                : "Not Connected"}
                             </Badge>
                           </InlineStack>
                           <Text variant="headingMd" as="h4">
@@ -497,19 +602,31 @@ export default function Settings() {
                           </Text>
                           <Button
                             onClick={() => setSelectedTab(2)}
-                            variant={whatsappConnection.isConnected ? "secondary" : "primary"}
+                            variant={
+                              whatsappConnection.isConnected
+                                ? "secondary"
+                                : "primary"
+                            }
                           >
-                            {whatsappConnection.isConnected ? "Manage WhatsApp" : "Connect WhatsApp"}
+                            {whatsappConnection.isConnected
+                              ? "Manage WhatsApp"
+                              : "Connect WhatsApp"}
                           </Button>
                         </BlockStack>
                       </Card>
                     </Grid.Cell>
-                    <Grid.Cell columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}>
+                    <Grid.Cell
+                      columnSpan={{ xs: 6, sm: 3, md: 3, lg: 4, xl: 4 }}
+                    >
                       <Card sectioned>
                         <BlockStack gap="300">
                           <InlineStack align="space-between">
                             <Icon source={NoteIcon} tone="base" />
-                            <Badge tone={totalNotifications > 0 ? "success" : "attention"}>
+                            <Badge
+                              tone={
+                                totalNotifications > 0 ? "success" : "attention"
+                              }
+                            >
                               {totalNotifications > 0 ? "Active" : "Inactive"}
                             </Badge>
                           </InlineStack>
@@ -521,9 +638,13 @@ export default function Settings() {
                           </Text>
                           <Button
                             onClick={() => setSelectedTab(3)}
-                            variant={totalNotifications > 0 ? "secondary" : "primary"}
+                            variant={
+                              totalNotifications > 0 ? "secondary" : "primary"
+                            }
                           >
-                            {totalNotifications > 0 ? "Edit Templates" : "Setup Templates"}
+                            {totalNotifications > 0
+                              ? "Edit Templates"
+                              : "Setup Templates"}
                           </Button>
                         </BlockStack>
                       </Card>
@@ -543,15 +664,26 @@ export default function Settings() {
                         Courier API Integration
                       </Text>
                       <Text variant="bodyMd" as="p" tone="subdued">
-                        Connect with Pakistan's leading courier services for automated tracking
+                        Connect with Pakistan's leading courier services for
+                        automated tracking
                       </Text>
                     </BlockStack>
                     <Badge tone="info">{enabledCouriers}/4 Active</Badge>
                   </InlineStack>
                   <Grid>
                     {Object.entries(credentials).map(([courier, config]) => (
-                      <Grid.Cell key={courier} columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}>
-                        <Card sectioned background={config.enabled ? "bg-surface-success-subdued" : undefined}>
+                      <Grid.Cell
+                        key={courier}
+                        columnSpan={{ xs: 6, sm: 3, md: 3, lg: 6, xl: 6 }}
+                      >
+                        <Card
+                          sectioned
+                          background={
+                            config.enabled
+                              ? "bg-surface-success-subdued"
+                              : undefined
+                          }
+                        >
                           <BlockStack gap="400">
                             <InlineStack align="space-between">
                               <InlineStack gap="300" align="center">
@@ -587,14 +719,23 @@ export default function Settings() {
                                 <Checkbox
                                   label=""
                                   checked={config.enabled}
-                                  onChange={(value) => handleCredentialChange(courier, "enabled", value)}
+                                  onChange={(value) =>
+                                    handleCredentialChange(
+                                      courier,
+                                      "enabled",
+                                      value,
+                                    )
+                                  }
                                 />
                               </InlineStack>
                             </InlineStack>
                             <Collapsible
                               open={config.enabled}
                               id={`${courier}-config`}
-                              transition={{ duration: "200ms", timingFunction: "ease-in-out" }}
+                              transition={{
+                                duration: "200ms",
+                                timingFunction: "ease-in-out",
+                              }}
                             >
                               <BlockStack gap="400">
                                 <Divider />
@@ -602,15 +743,31 @@ export default function Settings() {
                                   <Box width="100%">
                                     <TextField
                                       label="API Key"
-                                      type={showApiKeys[courier] ? "text" : "password"}
+                                      type={
+                                        showApiKeys[courier]
+                                          ? "text"
+                                          : "password"
+                                      }
                                       value={config.apiKey}
-                                      onChange={(value) => handleCredentialChange(courier, "apiKey", value)}
+                                      onChange={(value) =>
+                                        handleCredentialChange(
+                                          courier,
+                                          "apiKey",
+                                          value,
+                                        )
+                                      }
                                       placeholder="Enter your API key"
                                       autoComplete="off"
                                       connectedRight={
                                         <Button
-                                          icon={showApiKeys[courier] ? HideIcon : ViewIcon}
-                                          onClick={() => toggleApiKeyVisibility(courier)}
+                                          icon={
+                                            showApiKeys[courier]
+                                              ? HideIcon
+                                              : ViewIcon
+                                          }
+                                          onClick={() =>
+                                            toggleApiKeyVisibility(courier)
+                                          }
                                           accessibilityLabel="Toggle API key visibility"
                                         />
                                       }
@@ -627,7 +784,11 @@ export default function Settings() {
                                     API Documentation
                                   </Button>
                                   <Tooltip content="Test your API connection">
-                                    <Button icon={ConnectIcon} variant="secondary" size="slim">
+                                    <Button
+                                      icon={ConnectIcon}
+                                      variant="secondary"
+                                      size="slim"
+                                    >
                                       Test Connection
                                     </Button>
                                   </Tooltip>
@@ -653,7 +814,8 @@ export default function Settings() {
                         WhatsApp Business Integration
                       </Text>
                       <Text variant="bodyMd" as="p" tone="subdued">
-                        Connect your WhatsApp Business account for automated customer notifications
+                        Connect your WhatsApp Business account for automated
+                        customer notifications
                       </Text>
                     </BlockStack>
                     <Icon source={ChatIcon} tone="base" />
@@ -692,14 +854,19 @@ export default function Settings() {
                             </BlockStack>
                           </InlineStack>
                           <ButtonGroup>
-                            <Button icon={ExitIcon} tone="critical" onClick={handleDisconnectWhatsApp}>
+                            <Button
+                              icon={ExitIcon}
+                              tone="critical"
+                              onClick={handleDisconnectWhatsApp}
+                            >
                               Disconnect
                             </Button>
                           </ButtonGroup>
                         </InlineStack>
                         <Banner tone="success" icon={CheckIcon}>
                           <Text as="p">
-                            Your WhatsApp Business account is connected and ready to send notifications to customers.
+                            Your WhatsApp Business account is connected and
+                            ready to send notifications to customers.
                           </Text>
                         </Banner>
                       </BlockStack>
@@ -709,15 +876,18 @@ export default function Settings() {
                       heading="Connect WhatsApp Business"
                       image="/placeholder.svg?height=200&width=200&text=WhatsApp"
                       action={{
-                        content: whatsappConnection.isConnecting ? "Connecting..." : "Connect WhatsApp",
+                        content: whatsappConnection.isConnecting
+                          ? "Connecting..."
+                          : "Connect WhatsApp",
                         onAction: handleConnectWhatsApp,
                         icon: ConnectIcon,
                         loading: whatsappConnection.isConnecting,
                       }}
                     >
                       <Text as="p">
-                        Scan the QR code with your WhatsApp Business app to enable automated customer notifications and
-                        improve your delivery communication.
+                        Scan the QR code with your WhatsApp Business app to
+                        enable automated customer notifications and improve your
+                        delivery communication.
                       </Text>
                     </EmptyState>
                   )}
@@ -736,18 +906,35 @@ export default function Settings() {
                           <Text variant="headingMd" as="h3">
                             Notification Channels
                           </Text>
-                          <Badge tone="info">{totalNotifications}/2 Active</Badge>
+                          <Badge tone="info">
+                            {totalNotifications}/2 Active
+                          </Badge>
                         </InlineStack>
                         <BlockStack gap="400">
                           <Card
                             sectioned
-                            background={notifications.whatsappEnabled ? "bg-surface-success-subdued" : undefined}
+                            background={
+                              notifications.whatsappEnabled
+                                ? "bg-surface-success-subdued"
+                                : undefined
+                            }
                           >
                             <InlineStack align="space-between">
                               <InlineStack gap="300" align="center">
-                                <Icon source={ChatIcon} tone={notifications.whatsappEnabled ? "success" : "subdued"} />
+                                <Icon
+                                  source={ChatIcon}
+                                  tone={
+                                    notifications.whatsappEnabled
+                                      ? "success"
+                                      : "subdued"
+                                  }
+                                />
                                 <BlockStack gap="100">
-                                  <Text variant="bodyLg" as="h4" fontWeight="semibold">
+                                  <Text
+                                    variant="bodyLg"
+                                    as="h4"
+                                    fontWeight="semibold"
+                                  >
                                     WhatsApp Notifications
                                   </Text>
                                   <Text variant="bodyMd" as="p" tone="subdued">
@@ -760,20 +947,40 @@ export default function Settings() {
                               <Checkbox
                                 label=""
                                 checked={notifications.whatsappEnabled}
-                                onChange={(value) => handleNotificationChange("whatsappEnabled", value)}
+                                onChange={(value) =>
+                                  handleNotificationChange(
+                                    "whatsappEnabled",
+                                    value,
+                                  )
+                                }
                                 disabled={!whatsappConnection.isConnected}
                               />
                             </InlineStack>
                           </Card>
                           <Card
                             sectioned
-                            background={notifications.emailEnabled ? "bg-surface-success-subdued" : undefined}
+                            background={
+                              notifications.emailEnabled
+                                ? "bg-surface-success-subdued"
+                                : undefined
+                            }
                           >
                             <InlineStack align="space-between">
                               <InlineStack gap="300" align="center">
-                                <Icon source={EmailIcon} tone={notifications.emailEnabled ? "success" : "subdued"} />
+                                <Icon
+                                  source={EmailIcon}
+                                  tone={
+                                    notifications.emailEnabled
+                                      ? "success"
+                                      : "subdued"
+                                  }
+                                />
                                 <BlockStack gap="100">
-                                  <Text variant="bodyLg" as="h4" fontWeight="semibold">
+                                  <Text
+                                    variant="bodyLg"
+                                    as="h4"
+                                    fontWeight="semibold"
+                                  >
                                     Email Notifications
                                   </Text>
                                   <Text variant="bodyMd" as="p" tone="subdued">
@@ -784,7 +991,12 @@ export default function Settings() {
                               <Checkbox
                                 label=""
                                 checked={notifications.emailEnabled}
-                                onChange={(value) => handleNotificationChange("emailEnabled", value)}
+                                onChange={(value) =>
+                                  handleNotificationChange(
+                                    "emailEnabled",
+                                    value,
+                                  )
+                                }
                               />
                             </InlineStack>
                           </Card>
@@ -809,7 +1021,8 @@ export default function Settings() {
                         </InlineStack>
                         <Banner tone="info" icon={NoteIcon}>
                           <Text as="p">
-                            Use dynamic variables to personalize messages: {customerName}, {orderNumber}, {status},{" "}
+                            Use dynamic variables to personalize messages:{" "}
+                            {customerName}, {orderNumber}, {status},{" "}
                             {trackingUrl}
                           </Text>
                         </Banner>
@@ -817,20 +1030,33 @@ export default function Settings() {
                           <TextField
                             label="WhatsApp Template"
                             value={notifications.whatsappTemplate}
-                            onChange={(value) => handleNotificationChange("whatsappTemplate", value)}
+                            onChange={(value) =>
+                              handleNotificationChange(
+                                "whatsappTemplate",
+                                value,
+                              )
+                            }
                             multiline={3}
                             disabled={!notifications.whatsappEnabled}
                             helpText={
-                              !notifications.whatsappEnabled ? "Enable WhatsApp notifications to edit template" : ""
+                              !notifications.whatsappEnabled
+                                ? "Enable WhatsApp notifications to edit template"
+                                : ""
                             }
                           />
                           <TextField
                             label="Email Template"
                             value={notifications.emailTemplate}
-                            onChange={(value) => handleNotificationChange("emailTemplate", value)}
+                            onChange={(value) =>
+                              handleNotificationChange("emailTemplate", value)
+                            }
                             multiline={6}
                             disabled={!notifications.emailEnabled}
-                            helpText={!notifications.emailEnabled ? "Enable email notifications to edit template" : ""}
+                            helpText={
+                              !notifications.emailEnabled
+                                ? "Enable email notifications to edit template"
+                                : ""
+                            }
                           />
                         </BlockStack>
                       </BlockStack>
@@ -861,13 +1087,19 @@ export default function Settings() {
             <Modal.Section>
               <BlockStack gap="500" align="center">
                 <Text variant="bodyMd" as="p" alignment="center">
-                  Scan this QR code with your WhatsApp Business app to connect your account
+                  Scan this QR code with your WhatsApp Business app to connect
+                  your account
                 </Text>
 
                 {whatsappConnection.isConnecting ? (
                   <BlockStack gap="400" align="center">
                     <Spinner size="large" />
-                    <Text variant="bodyMd" as="p" tone="subdued" alignment="center">
+                    <Text
+                      variant="bodyMd"
+                      as="p"
+                      tone="subdued"
+                      alignment="center"
+                    >
                       Generating QR code...
                     </Text>
                   </BlockStack>
@@ -884,7 +1116,10 @@ export default function Settings() {
                   <BlockStack gap="400" align="center">
                     <Icon source={CheckIcon} tone="success" />
                     <Banner tone="success" icon={CheckIcon}>
-                      <Text as="p">WhatsApp connected successfully! This window will close automatically.</Text>
+                      <Text as="p">
+                        WhatsApp connected successfully! This window will close
+                        automatically.
+                      </Text>
                     </Banner>
                   </BlockStack>
                 ) : whatsappConnection.qrCode ? (
@@ -893,11 +1128,20 @@ export default function Settings() {
                       <img
                         src={whatsappConnection.qrCode || "/placeholder.svg"}
                         alt="WhatsApp QR Code"
-                        style={{ width: "200px", height: "200px", display: "block" }}
+                        style={{
+                          width: "200px",
+                          height: "200px",
+                          display: "block",
+                        }}
                       />
                     </Card>
                     <BlockStack gap="300">
-                      <Text variant="bodyMd" as="p" alignment="center" fontWeight="semibold">
+                      <Text
+                        variant="bodyMd"
+                        as="p"
+                        alignment="center"
+                        fontWeight="semibold"
+                      >
                         Setup Instructions:
                       </Text>
                       <BlockStack gap="200">
@@ -923,8 +1167,9 @@ export default function Settings() {
                     </BlockStack>
                     <Banner tone="info">
                       <Text as="p">
-                        Connection will be established automatically once you scan the QR code. This page will refresh
-                        every 3 seconds to check for connection.
+                        Connection will be established automatically once you
+                        scan the QR code. This page will refresh every 3 seconds
+                        to check for connection.
                       </Text>
                     </Banner>
                   </BlockStack>
@@ -946,7 +1191,8 @@ export default function Settings() {
             <Modal.Section>
               <BlockStack gap="400">
                 <Text variant="bodyMd" as="p">
-                  Use these dynamic variables in your notification templates to personalize messages:
+                  Use these dynamic variables in your notification templates to
+                  personalize messages:
                 </Text>
                 <Card sectioned>
                   <BlockStack gap="300">
@@ -978,8 +1224,8 @@ export default function Settings() {
                 </Card>
                 <Banner tone="info">
                   <Text as="p">
-                    Variables will be automatically replaced with actual values when notifications are sent to
-                    customers.
+                    Variables will be automatically replaced with actual values
+                    when notifications are sent to customers.
                   </Text>
                 </Banner>
               </BlockStack>
@@ -1040,7 +1286,9 @@ export default function Settings() {
                   </BlockStack>
                 </Card>
                 <Banner tone="warning">
-                  <Text as="p">Keep your API keys secure and never share them publicly.</Text>
+                  <Text as="p">
+                    Keep your API keys secure and never share them publicly.
+                  </Text>
                 </Banner>
               </BlockStack>
             </Modal.Section>
@@ -1048,5 +1296,5 @@ export default function Settings() {
         </BlockStack>
       </Page>
     </div>
-  )
+  );
 }

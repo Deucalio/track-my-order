@@ -3,7 +3,7 @@ import whatsappService from "../services/whatsapp.server.js"
 
 export async function action({ request }) {
   if (request.method !== "POST") {
-    return json({ error: "Method not allowed" }, { status: 405 })
+    return json({ error: "Only POST method allowed" }, { status: 405 })
   }
 
   try {
@@ -20,15 +20,32 @@ export async function action({ request }) {
     const { storeId } = data
 
     if (!storeId) {
-      return json({ success: false, error: "storeId is required" }, { status: 400 })
+      return json(
+        {
+          success: false,
+          error: "storeId is required",
+          example: { storeId: "your-store-id" },
+        },
+        { status: 400 },
+      )
     }
 
-    console.log(`Attempting to disconnect WhatsApp session for store: ${storeId}`)
+    console.log(`🔌 Disconnect request for store: ${storeId}`)
+
+    // Check if session exists
+    const session = await whatsappService.getSessionByStoreId(storeId)
+    if (!session) {
+      return json({
+        success: true,
+        message: `No WhatsApp session found for store ${storeId}`,
+        action: "nothing_to_disconnect",
+      })
+    }
 
     const deletedSession = await whatsappService.disconnect(storeId)
 
     if (deletedSession) {
-      console.log("WhatsApp session disconnected and removed from database successfully")
+      console.log("✅ WhatsApp session disconnected and removed successfully")
 
       return json({
         success: true,
@@ -40,21 +57,25 @@ export async function action({ request }) {
           status: deletedSession.status,
           last_seen: deletedSession.last_seen,
         },
+        timestamp: new Date().toISOString(),
       })
     } else {
       return json({
         success: true,
-        message: "WhatsApp session was already disconnected or didn't exist",
+        message: "WhatsApp session was already disconnected",
+        action: "already_disconnected",
+        timestamp: new Date().toISOString(),
       })
     }
   } catch (error) {
-    console.error("Error disconnecting WhatsApp session:", error)
+    console.error("❌ Disconnect error:", error)
 
     return json(
       {
         success: false,
         error: "Failed to disconnect WhatsApp session",
         details: error.message,
+        timestamp: new Date().toISOString(),
       },
       { status: 500 },
     )
@@ -75,35 +96,38 @@ export async function loader({ request }) {
         instructions: {
           method: "POST",
           endpoint: "/app/whatsapp/disconnect",
+          contentType: "application/json",
           body: {
-            storeId: "your_store_id_here",
+            storeId: storeId,
           },
         },
       })
     } else {
       const sessions = await whatsappService.getAllSessions()
-      const currentStatus = await whatsappService.getStatus()
+      const healthCheck = await whatsappService.healthCheck()
 
       return json({
         message: "Use POST method to disconnect WhatsApp session",
-        currentStatus: currentStatus,
+        healthCheck,
         allSessions: sessions,
         instructions: {
           method: "POST",
           endpoint: "/app/whatsapp/disconnect",
+          contentType: "application/json",
           body: {
-            storeId: "your_store_id_here",
+            storeId: "your-store-id",
           },
         },
       })
     }
   } catch (error) {
-    console.error("Error fetching WhatsApp sessions:", error)
+    console.error("❌ Disconnect loader error:", error)
 
     return json(
       {
         error: "Failed to fetch WhatsApp sessions",
         details: error.message,
+        timestamp: new Date().toISOString(),
       },
       { status: 500 },
     )
