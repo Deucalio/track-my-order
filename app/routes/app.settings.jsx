@@ -278,10 +278,12 @@ export default function Settings() {
   const [credentials, setCredentials] = useState({
     tcs: {
       requiredData: {
-        apiKey: "",
-        apiPassword: "",
+        userName: "",
+        password: "",
+        xIbmClientId: "",
       },
       enabled: false,
+      isConnected: false,
       courierCode: "TCS",
       logo: "🚚",
       color: "#dc2626",
@@ -294,6 +296,7 @@ export default function Settings() {
         apiPassword: "",
       },
       enabled: false,
+      isConnected: false,
       courierCode: "LCS",
       logo: "🐆",
       color: "#ea580c",
@@ -306,6 +309,7 @@ export default function Settings() {
         apiPassword: "",
       },
       enabled: false,
+      isConnected: false,
       courierCode: "MNP",
       logo: "📦",
       color: "#2563eb",
@@ -318,6 +322,7 @@ export default function Settings() {
         apiPassword: "",
       },
       enabled: false,
+      isConnected: false,
       courierCode: "PTX",
       logo: "✉️",
       color: "#16a34a",
@@ -435,6 +440,9 @@ export default function Settings() {
       res = await res.json();
       if (!res.data.success) {
         setErrorMessage(res.data.message || "Failed to save courier settings");
+        setIsSaving(false);
+        setSaveSuccess(false);
+        return;
       }
     } catch (error) {
       console.error("Error saving courier settings:", error);
@@ -444,11 +452,41 @@ export default function Settings() {
       return;
     }
 
-    console.log("Res:", res);
+    console.log("success", res);
 
-    // Reset the credentials for the courier
-    
+    //   {
+    //     "type": "DataWithResponseInit",
+    //     "data": {
+    //         "success": true,
+    //         "message": "Courier connected successfully",
+    //         "courier": {
+    //             "id": 7,
+    //             "name": "leopards",
+    //             "code": "TCS",
+    //             "store_id": 1,
+    //             "description": "",
+    //             "created_at": "2025-07-03T20:46:18.176Z",
+    //             "updated_at": "2025-07-03T20:46:18.176Z",
+    //             "meta_data": {
+    //                 "password": "sdasd",
+    //                 "userName": "sda",
+    //                 "xIbmClientId": "301dc7a6-bbd3-44f2-ab10-3f89622d43a0"
+    //             }
+    //         },
+    //         "method": "Post"
+    //     },
+    //     "init": null
+    // }
 
+    // Add them to Connected Couriers
+    setConnectedCouriers([...connectedCouriers, res.data.courier]);
+    setCredentials((prev) => ({
+      ...prev,
+      [courierName]: {
+        ...prev[courierName],
+        isConnected: true,
+      },
+    }));
 
     setIsSaving(false);
   };
@@ -468,7 +506,7 @@ export default function Settings() {
   };
 
   const enabledCouriers = Object.entries(credentials).filter(
-    ([_, config]) => config.enabled,
+    ([_, config]) => config.isConnected,
   ).length;
   const totalNotifications =
     (notifications.whatsappEnabled ? 1 : 0) +
@@ -506,12 +544,62 @@ export default function Settings() {
     setShowCourierModal(true);
   };
 
+  const handleDisconnectCourier = async (courierID) => {
+    setIsSaving(true);
+
+    try {
+      const data = await actions.deleteCourier(courierID);
+
+      if (!data.success) {
+        setIsSaving(false);
+        setSaveSuccess(false);
+        setErrorMessage(data.message || "Failed to disconnect courier");
+        return;
+      }
+    } catch (error) {
+      setIsSaving(false);
+      setSaveSuccess(false);
+      setErrorMessage(error.message || "Failed to disconnect courier");
+    }
+
+    const courierCode = connectedCouriers.find(
+      (courier) => courier.id === courierID,
+    ).code;
+    // Remove courier from connectecCouriers
+    setConnectedCouriers((prev) =>
+      prev.filter((courier) => courier.id !== courierID),
+    );
+
+    // Set the Credentials to isConnected = False
+    setCredentials((prev) => {
+      const updated = { ...prev };
+
+      for (const key in updated) {
+        if (updated[key].courierCode === courierCode) {
+          updated[key] = {
+            ...updated[key],
+            isConnected: false,
+            enabled: false,
+            requiredData: Object.fromEntries(
+              Object.keys(updated[key].requiredData).map((field) => [
+                field,
+                "",
+              ]),
+            ),
+          };
+          break;
+        }
+      }
+
+      return updated;
+    });
+
+    setIsSaving(false);
+  };
+
   useEffect(() => {
-
-
-
     if (selectedTab === 1) {
-    // Set all credentials enabled  to false
+      // Set all credentials enabled  to false
       setCredentials((prev) => {
         const updated = {};
         for (const key in prev) {
@@ -521,7 +609,7 @@ export default function Settings() {
           };
         }
         return updated;
-      })
+      });
 
       const couriers = actions.getAllCouriers(shopData.id);
       setIsTabLoading(true);
@@ -539,7 +627,47 @@ export default function Settings() {
         if (data.success) {
           couriersRef.current.style.opacity = "100%";
           couriersRef.current.style.pointerEvents = "auto";
+          console.log("couriers: ", data.response.couriers);
           setConnectedCouriers(data.response.couriers);
+
+          // If the code of data.response.couriers match with the credentials then set its isConnected to True
+          setCredentials((prev) => {
+            const updated = {};
+
+            for (const key in prev) {
+              // Start by resetting each courier's isConnected to false and requiredData to empty
+              updated[key] = {
+                ...prev[key],
+                isConnected: false,
+                requiredData: Object.fromEntries(
+                  Object.keys(prev[key].requiredData).map((field) => [
+                    field,
+                    "",
+                  ]),
+                ),
+              };
+
+              // Try to find a matching connected courier
+              const match = data.response.couriers.find(
+                (c) => c.code === prev[key].courierCode,
+              );
+
+              if (match) {
+                updated[key].isConnected = true;
+
+                // Set requiredData from meta_data if it exists
+                console.log("match: ", match);
+                if (match.meta_data) {
+                  updated[key].requiredData = {
+                    ...updated[key].requiredData,
+                    ...match.meta_data,
+                  };
+                }
+              }
+            }
+
+            return updated;
+          });
         } else {
           console.error("Error fetching couriers:", data.message);
         }
@@ -896,7 +1024,7 @@ export default function Settings() {
                                   </BlockStack>
                                 </InlineStack>
                                 <InlineStack gap="200" align="center">
-                                  {config.enabled && (
+                                  {config.isConnected && (
                                     <Badge tone="success" icon={CheckIcon}>
                                       Active
                                     </Badge>
@@ -972,13 +1100,24 @@ export default function Settings() {
                                             ? "API Key"
                                             : field === "apiPassword"
                                               ? "API Password"
-                                              : field;
+                                              : field === "userName"
+                                                ? "User Name"
+                                                : field === "password"
+                                                  ? "Password"
+                                                  : field === "xIbmClientId"
+                                                    ? "X IBM Client ID"
+                                                    : field
+                                                        .charAt(0)
+                                                        .toUpperCase() +
+                                                      field.slice(1);
                                         return (
                                           <Box width="100%" key={field}>
                                             <TextField
-                                              disabled={isSaving}
+                                              disabled={
+                                                isSaving || config.isConnected
+                                              }
                                               label={displayField}
-                                              type="text"
+                                              type={`${displayField.toLocaleLowerCase().includes("password") || displayField.toLocaleLowerCase().includes("x") ? "password" : "text"}`}
                                               value={value}
                                               onChange={(value) =>
                                                 handleCredentialChange(
@@ -1013,26 +1152,49 @@ export default function Settings() {
                                       API Documentation
                                     </Button>
                                     <Tooltip
-                                      content={`${isSaving ? "Saving..." : "Save Settings"}`}
+                                      content={`${config.isConnected && isSaving ? "Disconnecting API" : config.isConnected ? "Disconnect API" : isSaving ? "Saving..." : "Save Settings"}`}
                                     >
                                       <div
                                         style={{ display: "flex", gap: "10px" }}
                                       >
-                                        <Button
-                                          disabled={
-                                            isSaving ||
-                                            Object.values(
-                                              config.requiredData,
-                                            ).some((value) => !value.trim())
-                                          }
-                                          onClick={() =>
-                                            handleCourierSave(courier)
-                                          }
-                                          variant="primary"
-                                          size="slim"
-                                        >
-                                          Save
-                                        </Button>
+                                        {config.isConnected ? (
+                                          <Button
+                                            disabled={isSaving}
+                                            onClick={() =>
+                                              handleDisconnectCourier(
+                                                connectedCouriers.find(
+                                                  (c) =>
+                                                    c.code ===
+                                                    config.courierCode,
+                                                ).id,
+                                              )
+                                            }
+                                            variant="primary"
+                                            tone="critical"
+                                          >
+                                            {/* Disconnect API */}
+                                            {isSaving
+                                              ? "Disconnecting API"
+                                              : "Disconnect API"}
+                                          </Button>
+                                        ) : (
+                                          <Button
+                                            disabled={
+                                              isSaving ||
+                                              Object.values(
+                                                config.requiredData,
+                                              ).some((value) => !value.trim())
+                                            }
+                                            onClick={() =>
+                                              handleCourierSave(courier)
+                                            }
+                                            variant="primary"
+                                            size="slim"
+                                          >
+                                            Save
+                                          </Button>
+                                        )}
+
                                         {isSaving && (
                                           <div>
                                             <Spinner

@@ -175,7 +175,7 @@ export default function OrdersIndex() {
   ];
 
   // Update URL with filters - Enhanced version
-  const updateFilters = () => {
+  const updateFilters = useCallback(() => {
     setLoading(true);
     const newSearchParams = new URLSearchParams();
 
@@ -231,10 +231,23 @@ export default function OrdersIndex() {
 
     // Navigate with new params
     navigate(`?${newSearchParams.toString()}`, { replace: true });
-
+    
     // Reset loading state after navigation
     setTimeout(() => setLoading(false), 500);
-  }
+  }, [
+    queryValue,
+    orderNumber,
+    customerPhone,
+    status,
+    fulfillmentStatus,
+    courierName,
+    trackingNumber,
+    dateRange,
+    deliveryDateRange,
+    sortBy,
+    sortDirection,
+    navigate,
+  ]);
 
   // Auto-apply filters when query changes (for real-time search)
   useEffect(() => {
@@ -248,7 +261,7 @@ export default function OrdersIndex() {
   }, [queryValue]);
 
   // Clear all filters
-  const handleClearFilters = () => {
+  const handleClearFilters = useCallback(() => {
     setQueryValue("");
     setOrderNumber("");
     setCustomerPhone("");
@@ -261,29 +274,32 @@ export default function OrdersIndex() {
     setSortBy("placed_at");
     setSortDirection("desc");
     navigate("/app/orders", { replace: true });
-  };
+  }, [navigate]);
 
   // Handle pagination - Enhanced version
-  const handlePagination = (direction) => {
-    setLoading(true);
-    const currentPage = meta?.page || 1;
-    const newPage = direction === "next" ? currentPage + 1 : currentPage - 1;
+  const handlePagination = useCallback(
+    (direction) => {
+      setLoading(true);
+      const currentPage = meta?.page || 1;
+      const newPage = direction === "next" ? currentPage + 1 : currentPage - 1;
 
-    const newSearchParams = new URLSearchParams(searchParams);
-    newSearchParams.set("page", newPage.toString());
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.set("page", newPage.toString());
 
-    navigate(`?${newSearchParams.toString()}`, { replace: true });
-
-    // Reset loading state after navigation
-    setTimeout(() => setLoading(false), 500);
-  };
+      navigate(`?${newSearchParams.toString()}`, { replace: true });
+      
+      // Reset loading state after navigation
+      setTimeout(() => setLoading(false), 500);
+    },
+    [meta?.page, searchParams, navigate],
+  );
 
   // Handle sort change - Enhanced version
-  const handleSortChange = (value) => {
+  const handleSortChange = useCallback((value) => {
     const [field, direction] = value.split(":");
     setSortBy(field);
     setSortDirection(direction);
-
+    
     // Auto-apply sort change
     setTimeout(() => {
       const newSearchParams = new URLSearchParams(searchParams);
@@ -292,7 +308,7 @@ export default function OrdersIndex() {
       newSearchParams.set("page", "1"); // Reset to first page
       navigate(`?${newSearchParams.toString()}`, { replace: true });
     }, 100);
-  };
+  }, [searchParams, navigate]);
 
   // Handle date range changes
   const handleDateRangeChange = (range) => {
@@ -359,7 +375,11 @@ export default function OrdersIndex() {
           </Badge>
         );
       default:
-        return <Badge size="small">{status || "Unknown"}</Badge>;
+        return (
+          <Badge size="small">
+            {status || "Unknown"}
+          </Badge>
+        );
     }
   };
 
@@ -445,7 +465,7 @@ export default function OrdersIndex() {
     } catch (error) {
       console.error("Failed to copy tracking number:", error);
     }
-  };
+  }
 
   // Table headings
   const headings = [

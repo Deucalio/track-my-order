@@ -33,11 +33,11 @@ model fulfillments {
   courier_name       String?           @db.VarChar(100)
   courier_code       String?           @db.VarChar(100)
   status             String?           @db.VarChar(50)
-  delivered_at       DateTime?         @db.Timestamp(6)
   estimated_delivery DateTime?         @db.Date
   last_checked_at    DateTime?         @db.Timestamp(6)
   created_at         DateTime?         @default(now()) @db.Timestamp(6)
   meta_data          Json?
+  completed_at       DateTime?         @db.Timestamp(6)
   orders             orders?           @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tracking_events    tracking_events[]
 }
@@ -68,11 +68,11 @@ model stores {
   session_path      String?             @db.VarChar(255)
   created_at        DateTime?           @default(now()) @db.Timestamp(6)
   meta_data         Json?
+  couriers          couriers[]
   orders            orders[]
   webhook_events    webhook_events[]
   whatsapp_messages whatsapp_messages[]
   whatsapp_sessions whatsapp_sessions[]
-  couriers          couriers[]
 }
 
 model tracking_events {
@@ -134,13 +134,12 @@ model whatsapp_sessions {
   stores       stores   @relation(fields: [store_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
-
 model couriers {
   id          Int       @id @default(autoincrement())
   name        String    @db.VarChar(100)
   code        String    @db.VarChar(100)
   store_id    Int?
-  description String?   @db.Text
+  description String?
   created_at  DateTime? @default(now()) @db.Timestamp(6)
   updated_at  DateTime? @default(now()) @db.Timestamp(6)
   meta_data   Json?

@@ -29,7 +29,7 @@ export async function loader({ request }) {
         description: true,
         created_at: true,
         updated_at: true,
-        meta_data: false,
+        meta_data: true,
       },
     });
   } catch (e) {

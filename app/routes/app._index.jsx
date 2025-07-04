@@ -255,7 +255,7 @@ export default function Index() {
         {/* Key Metrics Row 1 */}
         <InlineStack gap="400" align="fill">
           <MetricCard
-            title="Total Shipments Tracked"
+            title="Total Shipments"
             value="2,847"
             change="+12.5%"
             changeType="positive"

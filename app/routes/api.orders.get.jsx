@@ -36,6 +36,10 @@ export async function loader({ request }) {
       estimated_delivery_from,
       estimated_delivery_to,
       
+      // Duration filters (in hours)
+      duration_from,
+      duration_to,
+      
       // Include options
       with_fulfillments = "true",
       with_stores = "false",
@@ -52,7 +56,7 @@ export async function loader({ request }) {
     } = searchParams;
 
     const hasFulfillmentFilters = fulfillment_status || courier_name || courier_code || tracking_number || delivery_date_from || delivery_date_to || estimated_delivery_from || estimated_delivery_to;
-
+    const hasDurationFilter = duration_from || duration_to;
 
     // Parse pagination parameters
     const pageInt = Math.max(1, parseInt(page) || 1);
@@ -100,7 +104,7 @@ export async function loader({ request }) {
 
     // Date filters for placed_at
     if (date_from || date_to || placed_at_from || placed_at_to) {
-      orderWhere.placed_at = {};
+      const placedAtFilter = {};
       
       const fromDate = date_from || placed_at_from;
       const toDate = date_to || placed_at_to;
@@ -108,7 +112,7 @@ export async function loader({ request }) {
       if (fromDate) {
         const parsedFromDate = new Date(fromDate);
         if (!isNaN(parsedFromDate.getTime())) {
-          orderWhere.placed_at.gte = parsedFromDate;
+          placedAtFilter.gte = parsedFromDate;
         }
       }
       
@@ -117,19 +121,24 @@ export async function loader({ request }) {
         if (!isNaN(parsedToDate.getTime())) {
           // Set to end of day for inclusive range
           parsedToDate.setHours(23, 59, 59, 999);
-          orderWhere.placed_at.lte = parsedToDate;
+          placedAtFilter.lte = parsedToDate;
         }
+      }
+      
+      // Only add to orderWhere if we have valid filters
+      if (Object.keys(placedAtFilter).length > 0) {
+        orderWhere.placed_at = placedAtFilter;
       }
     }
 
     // Date filters for created_at
     if (created_at_from || created_at_to) {
-      orderWhere.created_at = {};
+      const createdAtFilter = {};
       
       if (created_at_from) {
         const parsedFromDate = new Date(created_at_from);
         if (!isNaN(parsedFromDate.getTime())) {
-          orderWhere.created_at.gte = parsedFromDate;
+          createdAtFilter.gte = parsedFromDate;
         }
       }
       
@@ -137,8 +146,13 @@ export async function loader({ request }) {
         const parsedToDate = new Date(created_at_to);
         if (!isNaN(parsedToDate.getTime())) {
           parsedToDate.setHours(23, 59, 59, 999);
-          orderWhere.created_at.lte = parsedToDate;
+          createdAtFilter.lte = parsedToDate;
         }
+      }
+      
+      // Only add to orderWhere if we have valid filters
+      if (Object.keys(createdAtFilter).length > 0) {
+        orderWhere.created_at = createdAtFilter;
       }
     }
 
@@ -147,11 +161,10 @@ export async function loader({ request }) {
 
     // Fulfillments include with filters
     if (with_fulfillments === "true") {
-      // If we have fulfillment filters, apply them to the include as well to filter the returned fulfillments
       const fulfillmentWhere = {};
       
       if (hasFulfillmentFilters) {
-        // Apply the same filters to the include
+        // Apply fulfillment filters to the include
         if (fulfillment_status) {
           fulfillmentWhere.status = String(fulfillment_status);
         }
@@ -177,14 +190,14 @@ export async function loader({ request }) {
           };
         }
 
-        // Date filters for delivered_at
+        // Date filters for delivered_at (using correct field name from schema)
         if (delivery_date_from || delivery_date_to) {
-          fulfillmentWhere.delivered_at = {};
+          const deliveredAtFilter = {};
           
           if (delivery_date_from) {
             const parsedFromDate = new Date(delivery_date_from);
             if (!isNaN(parsedFromDate.getTime())) {
-              fulfillmentWhere.delivered_at.gte = parsedFromDate;
+              deliveredAtFilter.gte = parsedFromDate;
             }
           }
           
@@ -192,27 +205,35 @@ export async function loader({ request }) {
             const parsedToDate = new Date(delivery_date_to);
             if (!isNaN(parsedToDate.getTime())) {
               parsedToDate.setHours(23, 59, 59, 999);
-              fulfillmentWhere.delivered_at.lte = parsedToDate;
+              deliveredAtFilter.lte = parsedToDate;
             }
+          }
+          
+          if (Object.keys(deliveredAtFilter).length > 0) {
+            fulfillmentWhere.delivered_at = deliveredAtFilter;
           }
         }
 
         // Date filters for estimated_delivery
         if (estimated_delivery_from || estimated_delivery_to) {
-          fulfillmentWhere.estimated_delivery = {};
+          const estimatedDeliveryFilter = {};
           
           if (estimated_delivery_from) {
             const parsedFromDate = new Date(estimated_delivery_from);
             if (!isNaN(parsedFromDate.getTime())) {
-              fulfillmentWhere.estimated_delivery.gte = parsedFromDate;
+              estimatedDeliveryFilter.gte = parsedFromDate;
             }
           }
           
           if (estimated_delivery_to) {
             const parsedToDate = new Date(estimated_delivery_to);
             if (!isNaN(parsedToDate.getTime())) {
-              fulfillmentWhere.estimated_delivery.lte = parsedToDate;
+              estimatedDeliveryFilter.lte = parsedToDate;
             }
+          }
+          
+          if (Object.keys(estimatedDeliveryFilter).length > 0) {
+            fulfillmentWhere.estimated_delivery = estimatedDeliveryFilter;
           }
         }
       }
@@ -252,10 +273,8 @@ export async function loader({ request }) {
     const sortDirection = sort_direction === "asc" ? "asc" : "desc";
 
     // Check if we have fulfillment filters that should affect order selection
-    
     if (hasFulfillmentFilters && with_fulfillments === "true") {
       // When we have fulfillment filters, we need to filter orders that have matching fulfillments
-      // Build the fulfillment filter conditions
       const fulfillmentFilterWhere = {};
       
       if (fulfillment_status) {
@@ -285,12 +304,12 @@ export async function loader({ request }) {
 
       // Date filters for delivered_at
       if (delivery_date_from || delivery_date_to) {
-        fulfillmentFilterWhere.delivered_at = {};
+        const deliveredAtFilter = {};
         
         if (delivery_date_from) {
           const parsedFromDate = new Date(delivery_date_from);
           if (!isNaN(parsedFromDate.getTime())) {
-            fulfillmentFilterWhere.delivered_at.gte = parsedFromDate;
+            deliveredAtFilter.gte = parsedFromDate;
           }
         }
         
@@ -298,34 +317,44 @@ export async function loader({ request }) {
           const parsedToDate = new Date(delivery_date_to);
           if (!isNaN(parsedToDate.getTime())) {
             parsedToDate.setHours(23, 59, 59, 999);
-            fulfillmentFilterWhere.delivered_at.lte = parsedToDate;
+            deliveredAtFilter.lte = parsedToDate;
           }
+        }
+        
+        if (Object.keys(deliveredAtFilter).length > 0) {
+          fulfillmentFilterWhere.delivered_at = deliveredAtFilter;
         }
       }
 
       // Date filters for estimated_delivery
       if (estimated_delivery_from || estimated_delivery_to) {
-        fulfillmentFilterWhere.estimated_delivery = {};
+        const estimatedDeliveryFilter = {};
         
         if (estimated_delivery_from) {
           const parsedFromDate = new Date(estimated_delivery_from);
           if (!isNaN(parsedFromDate.getTime())) {
-            fulfillmentFilterWhere.estimated_delivery.gte = parsedFromDate;
+            estimatedDeliveryFilter.gte = parsedFromDate;
           }
         }
         
         if (estimated_delivery_to) {
           const parsedToDate = new Date(estimated_delivery_to);
           if (!isNaN(parsedToDate.getTime())) {
-            fulfillmentFilterWhere.estimated_delivery.lte = parsedToDate;
+            estimatedDeliveryFilter.lte = parsedToDate;
           }
+        }
+        
+        if (Object.keys(estimatedDeliveryFilter).length > 0) {
+          fulfillmentFilterWhere.estimated_delivery = estimatedDeliveryFilter;
         }
       }
 
       // Add fulfillment filter to order where clause
-      orderWhere.fulfillments = {
-        some: fulfillmentFilterWhere,
-      };
+      if (Object.keys(fulfillmentFilterWhere).length > 0) {
+        orderWhere.fulfillments = {
+          some: fulfillmentFilterWhere,
+        };
+      }
     }
 
     // Execute the query
@@ -342,22 +371,113 @@ export async function loader({ request }) {
       prisma.orders.count({ where: orderWhere }),
     ]);
 
-    const filteredOrders = orders;
+    // Process orders to add duration calculation and apply duration filter
+    let processedOrders = orders.map(order => {
+      const orderWithDuration = { ...order };
+      
+      if (order.fulfillments && order.fulfillments.length > 0) {
+        // Calculate duration for each fulfillment
+        orderWithDuration.fulfillments = order.fulfillments.map(fulfillment => {
+          const fulfillmentWithDuration = { ...fulfillment };
+          
+          // Calculate duration from order created_at to fulfillment delivered_at (or now if not delivered)
+          if (order.created_at) {
+            const startTime = new Date(order.created_at);
+            const endTime = fulfillment.delivered_at ? new Date(fulfillment.delivered_at) : new Date();
+            
+            // Duration in hours
+            const durationHours = Math.round((endTime - startTime) / (1000 * 60 * 60));
+            fulfillmentWithDuration.duration_hours = durationHours;
+            
+            // Duration in days (for easier reading)
+            fulfillmentWithDuration.duration_days = Math.round(durationHours / 24 * 10) / 10;
+            
+            // Duration status
+            fulfillmentWithDuration.duration_status = fulfillment.delivered_at ? 'completed' : 'ongoing';
+          }
+          
+          return fulfillmentWithDuration;
+        });
+        
+        // Calculate order-level duration (using the latest fulfillment or ongoing)
+        const latestFulfillment = orderWithDuration.fulfillments.reduce((latest, current) => {
+          if (!latest) return current;
+          if (current.delivered_at && (!latest.delivered_at || new Date(current.delivered_at) > new Date(latest.delivered_at))) {
+            return current;
+          }
+          if (!current.delivered_at && latest.delivered_at) {
+            return current; // Ongoing fulfillment takes precedence
+          }
+          return latest;
+        });
+        
+        if (latestFulfillment && latestFulfillment.duration_hours !== undefined) {
+          orderWithDuration.duration_hours = latestFulfillment.duration_hours;
+          orderWithDuration.duration_days = latestFulfillment.duration_days;
+          orderWithDuration.duration_status = latestFulfillment.duration_status;
+        }
+      } else if (order.created_at) {
+        // Order without fulfillments - calculate duration from created_at to now
+        const startTime = new Date(order.created_at);
+        const endTime = new Date();
+        
+        const durationHours = Math.round((endTime - startTime) / (1000 * 60 * 60));
+        orderWithDuration.duration_hours = durationHours;
+        orderWithDuration.duration_days = Math.round(durationHours / 24 * 10) / 10;
+        orderWithDuration.duration_status = 'no_fulfillment';
+      }
+      
+      return orderWithDuration;
+    });
+
+    // Apply duration filter if specified
+    if (hasDurationFilter) {
+      processedOrders = processedOrders.filter(order => {
+        if (order.duration_hours === undefined) return false;
+        
+        let matchesDuration = true;
+        
+        if (duration_from) {
+          const durationFromHours = parseInt(duration_from);
+          if (!isNaN(durationFromHours)) {
+            matchesDuration = matchesDuration && order.duration_hours >= durationFromHours;
+          }
+        }
+        
+        if (duration_to) {
+          const durationToHours = parseInt(duration_to);
+          if (!isNaN(durationToHours)) {
+            matchesDuration = matchesDuration && order.duration_hours <= durationToHours;
+          }
+        }
+        
+        return matchesDuration;
+      });
+    }
+
+    // Adjust total count if duration filter is applied (this is an approximation)
+    const finalTotal = hasDurationFilter ? processedOrders.length : total;
 
     return data({
       meta: {
-        total,
+        total: finalTotal,
         page: pageInt,
         limit: limitInt,
-        pages: Math.ceil(total / limitInt),
+        pages: Math.ceil(finalTotal / limitInt),
         filters_applied: {
-          order_filters: Object.keys(orderWhere).length,
+          order_filters: Object.keys(orderWhere).filter(key => key !== 'fulfillments').length,
           fulfillment_filters: hasFulfillmentFilters ? 
             Object.keys(include.fulfillments?.where || {}).length : 0,
+          duration_filter: hasDurationFilter,
           includes: Object.keys(include).length,
         },
+        duration_stats: hasDurationFilter ? {
+          duration_from_hours: duration_from ? parseInt(duration_from) : null,
+          duration_to_hours: duration_to ? parseInt(duration_to) : null,
+          filtered_count: processedOrders.length,
+        } : null,
       },
-      data: sanitizeBigInt(filteredOrders),
+      data: sanitizeBigInt(processedOrders),
     });
 
   } catch (err) {
@@ -376,20 +496,22 @@ export async function loader({ request }) {
   }
 }
 
-
-
 // Helper function to sanitize BigInt values for JSON serialization
 function sanitizeBigInt(obj) {
   if (obj === null || obj === undefined) return obj;
-  
+
   if (typeof obj === 'bigint') {
     return obj.toString();
   }
-  
+
+  if (obj instanceof Date) {
+    return obj; // Or obj.toISOString() if you want to serialize
+  }
+
   if (Array.isArray(obj)) {
     return obj.map(sanitizeBigInt);
   }
-  
+
   if (typeof obj === 'object') {
     const sanitized = {};
     for (const [key, value] of Object.entries(obj)) {
@@ -397,9 +519,6 @@ function sanitizeBigInt(obj) {
     }
     return sanitized;
   }
-  
+
   return obj;
 }
-
-// Expexted data comes from post request. If
-// customerID, productID, shop

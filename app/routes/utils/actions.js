@@ -13,7 +13,25 @@ const getAllCouriers = async (storeID) => {
   }
 };
 
+const deleteCourier = async (courierID) => {
+  try {
+    const res = await fetch(`/api/couriers/delete`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ courierID }),
+    });
+    const data = await res.json();
+    return { success: true, response: data.data };
+  } catch (e) {
+    console.error("Error disconnecting courier:", e);
+    return { success: false, message: "Error disconnecting courier" };
+  }
+};
+
 const actions = {
   getAllCouriers,
+  deleteCourier,
 };
 export default actions;

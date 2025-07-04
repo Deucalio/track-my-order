@@ -49,6 +49,8 @@ export async function action({ request }) {
 
   const { storeID, courierCode, meta_data } = data_;
 
+  console.log("Wishlist POST request hit!", data_);
+
   //   Test the API call to the courier service
 
   if (courierCode === undefined || meta_data === undefined) {
@@ -87,6 +89,47 @@ export async function action({ request }) {
     }
   }
 
+  if (courierCode === "TCS") {
+    // Test Connection by Getting All Cities
+    try {
+      let data = "";
+
+      // let config = {
+      //   method: "get",
+      //   maxBodyLength: Infinity,
+      //   url: "https://api.tcscourier.com/production/v1/cod/cities",
+      //   headers: {
+      //     "X-IBM-Client-Id": meta_data.xIbmClientId,
+      //   },
+      //   data: data,
+      // };
+
+      const res = await axios.get(
+        "https://api.tcscourier.com/production/v1/cod/cities",
+        {
+          headers: {
+            "X-IBM-Client-Id": meta_data.xIbmClientId,
+          },
+        },
+      );
+      console.log("TCS API Response:", res.data);
+      if (res.data?.httpCode) {
+        return data({
+          success: false,
+          message: "Invalid API Key or Password",
+          method: "Post",
+        });
+      }
+    } catch (error) {
+      console.error("Error connecting to TCS API:", error);
+      return data({
+        success: false,
+        message: "Invalid API Key or Password",
+        method: "Post",
+      });
+    }
+  }
+
   //   code        String    @db.VarChar(100)
   //   store_id    Int?
   //   description String?   @db.Text
@@ -94,12 +137,13 @@ export async function action({ request }) {
   //   updated_at  DateTime? @default(now()) @db.Timestamp(6)
   //   meta_data   Json?
 
+  console.log("Saving courier data to the database...");
   //   Save the courier data to the database
   let courier_;
   try {
     courier_ = await db.couriers.create({
       data: {
-        name: "leopards",
+        name: courierCode === "LCS" ? "Leopards Courier Service" : "TCS",
         code: courierCode,
         store_id: storeID,
         description: "",
